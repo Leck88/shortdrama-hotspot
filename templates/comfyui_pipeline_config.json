@@ -1,0 +1,192 @@
+{
+  "_meta": {
+    "description": "SDXL 1080P竖屏图生图 + Wan2.2 图生视频 完整工作流",
+    "hardware": "RTX 4080S 32GB RAM",
+    "resolution": "1080x1920 (9:16竖屏)",
+    "video_duration": "8秒",
+    "estimated_time_per_scene": "约4-6分钟/场",
+    "cost_per_hour": "1.8元/小时 (AutoDL云算力)",
+    "pipeline": "SDXL文生图(1024x1820) → 后处理resize到1080x1920 → Wan2.2 I2V 8秒视频"
+  },
+  "step1_sdxl_t2i": {
+    "name": "SDXL文生图 - 生成1080P竖屏分镜图",
+    "description": "使用SDXL生成竖屏分镜底图，用于后续Wan2.2图生视频",
+    "comfyui_workflow": "sdxl_1080p_portrait.json",
+    "config": {
+      "checkpoint": "sd_xl_base_1.0.safetensors",
+      "width": 1024,
+      "height": 1820,
+      "final_resize": {"width": 1080, "height": 1920},
+      "aspect_ratio": "9:16",
+      "cfg_scale": 7.0,
+      "steps": 30,
+      "sampler": "euler_ancestral",
+      "scheduler": "normal",
+      "seed": -1,
+      "batch_size": 1,
+      "negative_prompt": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, blurry, deformed, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, ugly, blurry, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, mutated hands, fused fingers, too many fingers, long neck"
+    },
+    "node_types": {
+      "CheckpointLoaderSimple": "ComfyUI内置 - 加载SDXL checkpoint",
+      "CLIPTextEncode": "ComfyUI内置 - 编码正向/反向提示词",
+      "EmptySDXLLatentImage": "ComfyUI内置 - 生成SDXL格式空Latent",
+      "KSampler": "ComfyUI内置 - K采样器(euler_ancestral)",
+      "VAEDecode": "ComfyUI内置 - VAE解码Latent到图像",
+      "ImageScale": "ComfyUI内置 - 缩放图像到目标分辨率(替代ImageResize)",
+      "SaveImage": "ComfyUI内置 - 保存图像到文件"
+    },
+    "time_estimate": {
+      "sdxl_generation": "约8-12秒/张 (4080S)",
+      "resize_postprocess": "约1秒",
+      "total_per_image": "约10-15秒"
+    },
+    "cost_estimate": {
+      "per_image_yuan": "约0.005元",
+      "per_scene_3_angles": "约0.015元 (3张图)"
+    }
+  },
+  "step2_wan22_i2v": {
+    "name": "Wan2.2 图生视频 - 480P 8秒",
+    "description": "使用Wan2.2 I2V模型将分镜图生成为8秒竖屏视频",
+    "comfyui_workflow": "wan22_i2v_1080p_8s.json",
+    "config": {
+      "model": "wan2.2_i2v_14b_480p",
+      "model_format": "fp8量化推荐(fp8_e4m3fn)",
+      "input_image_size": "832x480",
+      "input_source": "SDXL输出的1080x1920分镜图，经ImageScale缩放",
+      "output_resolution": "832x480 (可后处理upscale到1080P)",
+      "video_duration_frames": 8,
+      "fps": 8,
+      "frames": 64,
+      "cfg_scale": 7.0,
+      "steps": 30,
+      "seed": -1,
+      "sampler": "uni_pc_bh2",
+      "motion_strength": 0.8,
+      "negative_prompt": "low quality, blurry, distorted, deformed, ugly, bad anatomy, static, no motion, jitter, flicker"
+    },
+    "node_types": {
+      "UNETLoader": "ComfyUI内置 - 加载Wan2.2 I2V扩散模型(I2V模型需单独加载UNet，不能用CheckpointLoaderSimple)",
+      "CLIPLoader": "ComfyUI内置 - 加载CLIP文本编码器(类型选wan2.1)",
+      "VAELoader": "ComfyUI内置 - 加载Wan2.2 VAE",
+      "LoadImage": "ComfyUI内置 - 加载SDXL生成的分镜图",
+      "ImageScale": "ComfyUI内置 - 缩放到Wan2.2输入尺寸832x480(替代ImageResize)",
+      "CLIPTextEncode": "ComfyUI内置 - 编码运动提示词和反向提示词",
+      "WanImageToVideo": "ComfyUI-Wan2.2自定义 - I2V核心节点，接收model/positive/negative/vae/image输入",
+      "KSampler": "ComfyUI内置 - I2V采样(uni_pc_bh2采样器)",
+      "VAEDecode": "ComfyUI内置 - VAE解码latent到视频帧",
+      "VHS_VideoCombine": "ComfyUI-VideoHelperSuite自定义 - 合成MP4视频"
+    },
+    "model_requirements": {
+      "unet_path": "models/diffusion_models/wan2.2_i2v_14b_480p_fp8.safetensors",
+      "clip_path": "models/clip/clip_vision_h.safetensors",
+      "vae_path": "models/vae/wan2.2_vae.safetensors",
+      "custom_nodes": [
+        "ComfyUI-Wan2.2 (提供WanImageToVideo节点)",
+        "ComfyUI-VideoHelperSuite (提供VHS_VideoCombine节点)"
+      ]
+    },
+    "time_estimate": {
+      "i2v_generation": "约3-5分钟/视频 (4080S, 14B模型fp8)",
+      "total_per_video": "约3-5分钟"
+    },
+    "cost_estimate": {
+      "per_video_yuan": "约0.09-0.15元 (3-5min × 1.8元/h)",
+      "per_scene_3_angles": "约0.27-0.45元"
+    }
+  },
+  "step3_combined": {
+    "name": "SDXL+Wan2.2 组合工作流 - 文字到视频一条龙",
+    "description": "将SDXL文生图和Wan2.2 I2V合二为一的完整工作流，只需导入一个工作流即可完成从文字描述到视频的完整流程",
+    "comfyui_workflow": "sdxl_wan22_combined.json",
+    "config": {
+      "sdxl_checkpoint": "sd_xl_base_1.0.safetensors",
+      "wan22_model": "wan2.2_i2v_14b_480p_fp8",
+      "sdxl_resolution": "1024x1820 → 1080x1920 (保存分镜图)",
+      "i2v_input_resolution": "832x480",
+      "i2v_output_resolution": "832x480 (可后处理upscale到1080P)",
+      "video_duration": "8秒",
+      "fps": 8,
+      "frames": 64,
+      "sdxl_sampler": "euler_ancestral",
+      "i2v_sampler": "uni_pc_bh2",
+      "cfg_scale": 7.0,
+      "steps": 30
+    },
+    "node_types": {
+      "CheckpointLoaderSimple": "ComfyUI内置 - 加载SDXL checkpoint",
+      "UNETLoader": "ComfyUI内置 - 加载Wan2.2 I2V UNet",
+      "CLIPLoader": "ComfyUI内置 - 加载Wan2.2 CLIP",
+      "VAELoader": "ComfyUI内置 - 加载Wan2.2 VAE",
+      "CLIPTextEncode": "ComfyUI内置 - 编码提示词(SDXL正/反向 + I2V运动/反向)",
+      "EmptySDXLLatentImage": "ComfyUI内置 - 生成SDXL格式空Latent",
+      "KSampler": "ComfyUI内置 - K采样器(SDXL用euler_ancestral, I2V用uni_pc_bh2)",
+      "VAEDecode": "ComfyUI内置 - VAE解码",
+      "ImageScale": "ComfyUI内置 - 缩放图像(1080x1920保存 + 832x480输入I2V)",
+      "SaveImage": "ComfyUI内置 - 保存1080x1920分镜图",
+      "WanImageToVideo": "ComfyUI-Wan2.2自定义 - I2V核心节点",
+      "VHS_VideoCombine": "ComfyUI-VideoHelperSuite自定义 - 合成MP4视频"
+    },
+    "template_variables": {
+      "{{POSITIVE_PROMPT}}": "SDXL正向提示词，描述分镜画面",
+      "{{MOTION_PROMPT}}": "Wan2.2运动提示词，描述视频中的运动",
+      "{SCENE_ID}": "场次编号，如 001、002"
+    },
+    "time_estimate": {
+      "sdxl_generation": "约8-12秒",
+      "i2v_generation": "约3-5分钟",
+      "total_per_scene": "约3-6分钟"
+    },
+    "cost_estimate": {
+      "per_scene_yuan": "约0.10-0.16元"
+    }
+  },
+  "step4_postprocess": {
+    "name": "后处理 - FFmpeg合成",
+    "description": "将各场视频拼接、添加字幕、配音",
+    "tools": ["FFmpeg", "Edge-TTS", "Whisper"],
+    "config": {
+      "video_codec": "libx264",
+      "audio_codec": "aac",
+      "crf": 18,
+      "preset": "medium",
+      "subtitle_font": "Microsoft YaHei",
+      "subtitle_size": 24,
+      "subtitle_color": "white",
+      "subtitle_outline": "black"
+    },
+    "time_estimate": {
+      "concat_and_subtitles": "约30秒/集",
+      "tts_generation": "约10秒",
+      "total": "约1分钟/集"
+    },
+    "cost_estimate": {
+      "per_episode_yuan": "约0.03元"
+    }
+  },
+  "full_episode_estimate": {
+    "description": "一集2分钟短剧的完整制作时间和成本估算",
+    "scenes": 5,
+    "angles_per_scene": 3,
+    "total_images": 15,
+    "total_videos": 15,
+    "time": {
+      "step1_images": "约3-5分钟 (15张图 × 10-15秒)",
+      "step2_videos": "约45-75分钟 (15段视频 × 3-5分钟)",
+      "step3_postprocess": "约2分钟",
+      "total_minutes": "50-82分钟",
+      "total_minutes_avg": "约65分钟"
+    },
+    "cost": {
+      "step1_images": "约0.075元",
+      "step2_videos": "约1.35-2.25元",
+      "step3_postprocess": "约0.03元",
+      "total_yuan": "约1.5-2.4元",
+      "total_yuan_avg": "约1.9元/集"
+    },
+    "batch_10_episodes": {
+      "time": "约10-14小时",
+      "cost": "约15-24元"
+    }
+  }
+}

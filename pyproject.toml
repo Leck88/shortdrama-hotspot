@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shortdrama-hotspot"
+version = "4.1.0"
+description = "短剧热点监控 + 仿制剧本 + ComfyUI一键生成 + TTS配音+字幕"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Leck88"},
+]
+keywords = ["shortdrama", "hotspot", "comfyui", "tts", "ai-video"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+]
+
+[project.optional-dependencies]
+tts = ["edge-tts>=6.1.0"]
+dev = ["pytest>=7.0", "ruff>=0.1.0"]
+
+[project.scripts]
+shortdrama-hotspot = "fetch_hotspot:main"
+shortdrama-pipeline = "pipeline:main"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

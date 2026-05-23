@@ -1,0 +1,347 @@
+{
+  "last_node_id": 16,
+  "last_link_id": 22,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CheckpointLoaderSimple",
+      "pos": [50, 50],
+      "size": [320, 100],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [1]},
+        {"name": "CLIP", "type": "CLIP", "links": [2, 3]},
+        {"name": "VAE", "type": "VAE", "links": [6]}
+      ],
+      "title": "SDXL 模型加载",
+      "widgets_values": ["sd_xl_base_1.0.safetensors"]
+    },
+    {
+      "id": 2,
+      "type": "CLIPTextEncode",
+      "pos": [450, 50],
+      "size": [400, 130],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 2}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [4]}
+      ],
+      "title": "SDXL 正向提示词",
+      "widgets_values": ["{{POSITIVE_PROMPT}}"]
+    },
+    {
+      "id": 3,
+      "type": "CLIPTextEncode",
+      "pos": [450, 240],
+      "size": [400, 130],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 3}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [5]}
+      ],
+      "title": "SDXL 反向提示词",
+      "widgets_values": ["lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, blurry, deformed, ugly, duplicate, morbid, mutilated, out of frame, extra limbs, cloned face, disfigured, malformed limbs, missing arms, missing legs, mutated hands, fused fingers, too many fingers, long neck"]
+    },
+    {
+      "id": 4,
+      "type": "EmptySDXLLatentImage",
+      "pos": [450, 430],
+      "size": [300, 120],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "links": [7]}
+      ],
+      "title": "空Latent (1080P竖屏)",
+      "widgets_values": [1024, 1820, 1]
+    },
+    {
+      "id": 5,
+      "type": "KSampler",
+      "pos": [950, 100],
+      "size": [320, 260],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 1},
+        {"name": "positive", "type": "CONDITIONING", "link": 4},
+        {"name": "negative", "type": "CONDITIONING", "link": 5},
+        {"name": "latent_image", "type": "LATENT", "link": 7}
+      ],
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "links": [8]}
+      ],
+      "title": "SDXL KSampler",
+      "widgets_values": [-1, "randomize", 30, 7.0, "euler_ancestral", "normal", 1.0]
+    },
+    {
+      "id": 6,
+      "type": "VAEDecode",
+      "pos": [1350, 100],
+      "size": [210, 80],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 8},
+        {"name": "vae", "type": "VAE", "link": 6}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [9, 10]}
+      ]
+    },
+    {
+      "id": 7,
+      "type": "SaveImage",
+      "pos": [1350, 230],
+      "size": [320, 280],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 9}
+      ],
+      "title": "保存分镜图 (1080x1920)",
+      "widgets_values": ["shortdrama/scene_{SCENE_ID}"]
+    },
+    {
+      "id": 8,
+      "type": "ImageScale",
+      "pos": [1650, 100],
+      "size": [320, 180],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "image", "type": "IMAGE", "link": 10}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [11]}
+      ],
+      "title": "ImageScale到832x480 (Wan2.2输入)",
+      "widgets_values": [832, 480, "lanczos"]
+    },
+    {
+      "id": 9,
+      "type": "UNETLoader",
+      "pos": [50, 620],
+      "size": [320, 100],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [12]}
+      ],
+      "title": "Wan2.2 I2V UNet加载",
+      "widgets_values": ["wan2.2_i2v_14b_480p_fp8.safetensors", "fp8_e4m3fn"]
+    },
+    {
+      "id": 10,
+      "type": "CLIPLoader",
+      "pos": [50, 790],
+      "size": [320, 100],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "outputs": [
+        {"name": "CLIP", "type": "CLIP", "links": [13, 14]}
+      ],
+      "title": "Wan2.2 CLIP加载",
+      "widgets_values": ["clip_vision_h.safetensors", "wan2.1"]
+    },
+    {
+      "id": 11,
+      "type": "VAELoader",
+      "pos": [50, 950],
+      "size": [320, 80],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "outputs": [
+        {"name": "VAE", "type": "VAE", "links": [15]}
+      ],
+      "title": "Wan2.2 VAE加载",
+      "widgets_values": ["wan2.2_vae.safetensors"]
+    },
+    {
+      "id": 12,
+      "type": "CLIPTextEncode",
+      "pos": [450, 650],
+      "size": [400, 120],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 13}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [16]}
+      ],
+      "title": "I2V 运动提示词",
+      "widgets_values": ["{{MOTION_PROMPT}}"]
+    },
+    {
+      "id": 13,
+      "type": "CLIPTextEncode",
+      "pos": [450, 840],
+      "size": [400, 100],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 14}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [17]}
+      ],
+      "title": "I2V 反向提示词",
+      "widgets_values": ["low quality, blurry, distorted, deformed, ugly, bad anatomy, static, no motion, jitter, flicker"]
+    },
+    {
+      "id": 14,
+      "type": "WanImageToVideo",
+      "pos": [950, 650],
+      "size": [320, 250],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 12},
+        {"name": "positive", "type": "CONDITIONING", "link": 16},
+        {"name": "negative", "type": "CONDITIONING", "link": 17},
+        {"name": "vae", "type": "VAE", "link": 15},
+        {"name": "image", "type": "IMAGE", "link": 11}
+      ],
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "links": [18]}
+      ],
+      "title": "Wan2.2 I2V 核心节点",
+      "widgets_values": [832, 480, 64, 8]
+    },
+    {
+      "id": 15,
+      "type": "KSampler",
+      "pos": [1350, 650],
+      "size": [320, 260],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 19},
+        {"name": "positive", "type": "CONDITIONING", "link": 20},
+        {"name": "negative", "type": "CONDITIONING", "link": 21},
+        {"name": "latent_image", "type": "LATENT", "link": 18}
+      ],
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "links": [22]}
+      ],
+      "title": "I2V KSampler",
+      "widgets_values": [-1, "randomize", 30, 7.0, "uni_pc_bh2", "normal", 0.8]
+    },
+    {
+      "id": 16,
+      "type": "VAEDecode",
+      "pos": [1750, 650],
+      "size": [210, 80],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 22},
+        {"name": "vae", "type": "VAE", "link": 23}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [24]}
+      ]
+    },
+    {
+      "id": 17,
+      "type": "VHS_VideoCombine",
+      "pos": [1750, 800],
+      "size": [320, 300],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 24}
+      ],
+      "title": "输出8秒MP4视频",
+      "widgets_values": ["shortdrama/video_scene_{SCENE_ID}", 8, 0, "video/h264-mp4", false, true, ""]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 5, 0, "MODEL"],
+    [2, 1, 1, 2, 0, "CLIP"],
+    [3, 1, 2, 3, 0, "CLIP"],
+    [4, 2, 0, 5, 1, "CONDITIONING"],
+    [5, 3, 0, 5, 2, "CONDITIONING"],
+    [6, 1, 3, 6, 1, "VAE"],
+    [7, 4, 0, 5, 3, "LATENT"],
+    [8, 5, 0, 6, 0, "LATENT"],
+    [9, 6, 0, 7, 0, "IMAGE"],
+    [10, 6, 0, 8, 0, "IMAGE"],
+    [11, 8, 0, 14, 4, "IMAGE"],
+    [12, 9, 0, 14, 0, "MODEL"],
+    [13, 10, 0, 12, 0, "CLIP"],
+    [14, 10, 0, 13, 0, "CLIP"],
+    [15, 11, 0, 14, 3, "VAE"],
+    [16, 12, 0, 14, 1, "CONDITIONING"],
+    [17, 13, 0, 14, 2, "CONDITIONING"],
+    [18, 14, 0, 15, 3, "LATENT"],
+    [19, 9, 0, 15, 0, "MODEL"],
+    [20, 14, 1, 15, 1, "CONDITIONING"],
+    [21, 14, 2, 15, 2, "CONDITIONING"],
+    [22, 15, 0, 16, 0, "LATENT"],
+    [23, 11, 0, 16, 1, "VAE"],
+    [24, 16, 0, 17, 0, "IMAGE"]
+  ],
+  "_readme": {
+    "title": "SDXL文生图 + Wan2.2 I2V 组合工作流（文字→视频一条龙）",
+    "usage": "替换{{POSITIVE_PROMPT}}为分镜提示词，{{MOTION_PROMPT}}为运动描述，{SCENE_ID}为场次编号",
+    "pipeline": "SDXL文生图(1024x1820) → ImageScale(1080x1920保存) → ImageScale(832x480) → Wan2.2 I2V(8秒视频)",
+    "resolution": "SDXL输出1080x1920，I2V输入832x480",
+    "output": "8秒MP4视频 (8fps, 64帧) + 1080x1920分镜图",
+    "nodes": {
+      "CheckpointLoaderSimple": "ComfyUI内置节点，加载SDXL模型",
+      "CLIPTextEncode": "ComfyUI内置节点，编码正/反向提示词（SDXL和I2V各一组）",
+      "EmptySDXLLatentImage": "ComfyUI内置节点，生成SDXL空Latent",
+      "KSampler": "ComfyUI内置节点，K采样器（SDXL用euler_ancestral，I2V用uni_pc_bh2）",
+      "VAEDecode": "ComfyUI内置节点，VAE解码",
+      "ImageScale": "ComfyUI内置节点，缩放图片（1080x1920保存+832x480输入I2V）",
+      "SaveImage": "ComfyUI内置节点，保存分镜图",
+      "UNETLoader": "ComfyUI内置节点，加载Wan2.2 I2V UNet",
+      "CLIPLoader": "ComfyUI内置节点，加载Wan2.2 CLIP",
+      "VAELoader": "ComfyUI内置节点，加载Wan2.2 VAE",
+      "WanImageToVideo": "ComfyUI-Wan2.2自定义节点，I2V核心节点",
+      "VHS_VideoCombine": "ComfyUI-VideoHelperSuite自定义节点，合成MP4视频"
+    },
+    "model_requirements": {
+      "sdxl_checkpoint": "sd_xl_base_1.0.safetensors (ComfyUI models/checkpoints/目录)",
+      "wan22_unet": "wan2.2_i2v_14b_480p (fp8量化推荐，ComfyUI models/diffusion_models/目录)",
+      "wan22_clip": "clip_vision_h (ComfyUI models/clip/目录，类型选wan2.1)",
+      "wan22_vae": "wan2.2_vae (ComfyUI models/vae/目录)",
+      "custom_nodes": [
+        "ComfyUI-Wan2.2 (提供WanImageToVideo节点)",
+        "ComfyUI-VideoHelperSuite (提供VHS_VideoCombine节点)"
+      ]
+    },
+    "template_variables": {
+      "{{POSITIVE_PROMPT}}": "SDXL正向提示词，描述分镜画面",
+      "{{MOTION_PROMPT}}": "Wan2.2运动提示词，描述视频中的运动",
+      "{SCENE_ID}": "场次编号，如 001、002"
+    },
+    "time_4080S": "约3-6分钟/场景（SDXL 8-12秒 + I2V 3-5分钟）"
+  }
+}
