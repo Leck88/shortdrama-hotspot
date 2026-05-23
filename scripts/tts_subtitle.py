@@ -85,6 +85,8 @@ def extract_dialogues(script_md_path: str) -> list[dict]:
     lines = content.split("\n")
     for line in lines:
         line = line.strip()
+        # 去掉 Markdown 列表前缀（- 或 •），统一为 **角色名** 格式
+        line = re.sub(r"^[-•]\s+", "", line)
 
         # 检测场次标记：### 第X场
         scene_match = re.match(r"###\s*第(\d+)场", line)
@@ -92,9 +94,10 @@ def extract_dialogues(script_md_path: str) -> list[dict]:
             current_scene = int(scene_match.group(1))
             continue
 
-        # 模式1：**角色名**（情感）:「台词」
+        # 模式1：**角色名**（情感）:「台词」 或 **角色名**（情感）：「台词」
+        # 支持半角:和全角：冒号，支持「」『』""引号
         dialogue_match = re.match(
-            r"\*\*(.+?)\*\*[（(](.+?)[）)]\s*[：「「](.+?)[」：」]",
+            r"\*\*(.+?)\*\*[（(](.+?)[）)]\s*[:：]\s*[「『\"\u201c](.+?)[」』\"\u201d]",
             line
         )
         if dialogue_match:
@@ -109,26 +112,28 @@ def extract_dialogues(script_md_path: str) -> list[dict]:
             })
             continue
 
-        # 模式2：**角色名**（情感）: "台词" （英文引号变体）
+        # 模式2：**角色名**（情感）: 台词 （无引号变体兜底）
         dialogue_match2 = re.match(
-            r"\*\*(.+?)\*\*[（(](.+?)[）)]\s*[:：]\s*[\"「](.+?)[\"」]",
+            r"\*\*(.+?)\*\*[（(](.+?)[）)]\s*[:：]\s*(.+)",
             line
         )
         if dialogue_match2:
             role = dialogue_match2.group(1).strip()
             emotion = dialogue_match2.group(2).strip()
-            text = dialogue_match2.group(3).strip()
-            dialogues.append({
-                "scene": current_scene,
-                "role": role,
-                "text": text,
-                "emotion": emotion,
-            })
+            text = dialogue_match2.group(3).strip().strip('「」『』""\u201c\u201d\u0022')
+            if text and not text.startswith(('画面', '场景', '爆点', '结构')):
+                dialogues.append({
+                    "scene": current_scene,
+                    "role": role,
+                    "text": text,
+                    "emotion": emotion,
+                })
             continue
 
-        # 模式3：**旁白/字幕**:「内容」
+        # 模式3：**旁白/字幕**:「内容」 或 **旁白/字幕**：「内容」
+        # 支持 "旁白" "字幕" "旁白/字幕" 三种写法
         narrator_match = re.match(
-            r"\*\*(?:旁白|字幕)\*\*\s*[：「「](.+?)[」：」]",
+            r"\*\*(?:旁白|字幕|旁白/字幕)\*\*\s*[:：]\s*[「『\"\u201c](.+?)[」』\"\u201d]",
             line
         )
         if narrator_match:

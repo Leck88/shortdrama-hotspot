@@ -157,11 +157,18 @@ def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
     print(f"  ✓ 剧名: 《{title}》")
     print(f"  ✓ 题材: {script_genre}")
     print(f"  ✓ 剧本文件: {filepath}")
+    script_workflow_dir = None
     if comfyui_mode:
         wf_dir = os.path.join(script_output, "workflows")
         print(f"  ✓ ComfyUI工作流: {wf_dir}")
+        # 找到最新生成的子目录
+        if os.path.exists(wf_dir):
+            wf_subdirs = sorted([d for d in os.listdir(wf_dir)
+                                  if os.path.isdir(os.path.join(wf_dir, d))])
+            if wf_subdirs:
+                script_workflow_dir = os.path.join(wf_dir, wf_subdirs[-1])
 
-    return filepath, title, script_genre
+    return filepath, title, script_genre, script_workflow_dir
 
 
 # ============ 步骤3：SDXL生图 ============
@@ -432,26 +439,18 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
         return
 
     # 步骤2：生成剧本
-    script_path, title, script_genre = step2_generate_script(
+    script_path, title, script_genre, latest_wf = step2_generate_script(
         rank_data, output_dir, genre=genre, comfyui_mode=True
     )
 
-    # 找到最新生成的工作流目录
-    wf_base = os.path.join(script_dir, "workflows")
-    latest_wf = None
-    if os.path.exists(wf_base):
-        wf_dirs = sorted([d for d in os.listdir(wf_base) if os.path.isdir(os.path.join(wf_base, d))])
-        if wf_dirs:
-            latest_wf = os.path.join(wf_base, wf_dirs[-1])
-
     # 步骤3：SDXL生图
-    if latest_wf:
+    if latest_wf and os.path.exists(latest_wf):
         step3_generate_images(latest_wf, comfyui_running)
     else:
         print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤3")
 
     # 步骤4：Wan2.2生视频
-    if latest_wf:
+    if latest_wf and os.path.exists(latest_wf):
         step4_generate_videos(latest_wf, comfyui_running)
     else:
         print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤4")
