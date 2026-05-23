@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-短剧制作一键Pipeline (Shortdrama Production Pipeline)
+短剧制作一键Pipeline v3.0 (Shortdrama Production Pipeline)
 
-完整流程：
-  1. 抓取热点 → 2. 生成剧本(含ComfyUI配置) → 3. 调用ComfyUI生图 → 4. 调用Wan2.2生视频 → 5. FFmpeg合成
+完整7步流程：
+  1. 抓取热点 → 2. 生成剧本(含ComfyUI配置) → 3. SDXL生图 → 
+  4. Wan2.2生视频 → 5. TTS配音 → 6. 字幕生成 → 7. FFmpeg合成
 
 使用方式：
-  python pipeline.py --auto                    # 全自动：抓热点→生成剧本→生成ComfyUI配置
+  python pipeline.py --auto                    # 全自动：抓热点→生成剧本→ComfyUI配置
   python pipeline.py --auto --run-comfyui      # 全自动+调用ComfyUI（需ComfyUI服务运行中）
-  python pipeline.py --from-script <script.md> # 从已有剧本生成ComfyUI工作流
+  python pipeline.py --auto --run-comfyui --tts # 全自动+ComfyUI+TTS配音+字幕
+  python pipeline.py --from-script <script.md> # 从已有剧本生成ComfyUI工作流+TTS
   python pipeline.py --cost-estimate           # 仅计算成本估算
 
 硬件环境：RTX 4080S 32GB RAM
@@ -35,6 +37,7 @@ WORKFLOW_DIR = os.path.join(PROJECT_DIR, "workflows")
 DEFAULT_OUTPUT_DIR = r"D:\视频生产\reports\shortdrama"
 DEFAULT_SCRIPT_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "scripts")
 DEFAULT_VIDEO_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "videos")
+DEFAULT_TTS_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "tts")
 
 # ComfyUI API配置
 COMFYUI_API_URL = "http://127.0.0.1:8188"
@@ -44,6 +47,7 @@ COST_PER_HOUR = 1.8
 SDXL_TIME_PER_IMAGE_S = 10       # 4080S上SDXL生成一张约10秒
 WAN22_TIME_PER_VIDEO_S = 240     # 4080S上Wan2.2生成8秒视频约4分钟
 FFMPEG_TIME_S = 120              # FFmpeg合成约2分钟
+TTS_TIME_S = 30                  # TTS配音+字幕约30秒
 
 
 def print_header(title):
@@ -58,7 +62,7 @@ def print_step(step_num, total_steps, description):
     print(f"\n[{step_num}/{total_steps}] {description}")
 
 
-def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3):
+def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, include_tts=True):
     """
     计算制作成本估算
     
@@ -66,6 +70,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3):
         num_episodes: 集数
         scenes_per_episode: 每集场数
         angles_per_scene: 每场机位数
+        include_tts: 是否包含TTS配音成本
     
     返回：
         成本估算字典
@@ -76,12 +81,14 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3):
     sdxl_time = total_images * SDXL_TIME_PER_IMAGE_S
     wan22_time = total_videos * WAN22_TIME_PER_VIDEO_S
     ffmpeg_time = num_episodes * FFMPEG_TIME_S
-    total_time = sdxl_time + wan22_time + ffmpeg_time
+    tts_time = num_episodes * TTS_TIME_S if include_tts else 0
+    total_time = sdxl_time + wan22_time + ffmpeg_time + tts_time
     
     sdxl_cost = (sdxl_time / 3600) * COST_PER_HOUR
     wan22_cost = (wan22_time / 3600) * COST_PER_HOUR
     ffmpeg_cost = (ffmpeg_time / 3600) * COST_PER_HOUR
-    total_cost = sdxl_cost + wan22_cost + ffmpeg_cost
+    tts_cost = (tts_time / 3600) * COST_PER_HOUR
+    total_cost = sdxl_cost + wan22_cost + ffmpeg_cost + tts_cost
     
     return {
         "num_episodes": num_episodes,
@@ -91,6 +98,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3):
             "sdxl": f"{sdxl_time//60}分{sdxl_time%60}秒",
             "wan22": f"{wan22_time//60}分{wan22_time%60}秒",
             "ffmpeg": f"{ffmpeg_time//60}分{ffmpeg_time%60}秒",
+            "tts": f"{tts_time//60}分{tts_time%60}秒" if include_tts else "0分0秒",
             "total_seconds": total_time,
             "total_readable": f"{total_time//60}分{total_time%60}秒",
             "total_hours": f"{total_time/3600:.1f}小时",
@@ -99,6 +107,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3):
             "sdxl": f"¥{sdxl_cost:.3f}",
             "wan22": f"¥{wan22_cost:.2f}",
             "ffmpeg": f"¥{ffmpeg_cost:.3f}",
+            "tts": f"¥{tts_cost:.3f}" if include_tts else "¥0",
             "total": f"¥{total_cost:.2f}",
             "total_per_episode": f"¥{total_cost/max(num_episodes,1):.2f}",
         },
@@ -107,11 +116,12 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3):
     }
 
 
+# ============ 步骤1：抓取热点 ============
+
 def step1_fetch_hotspot(output_dir):
     """步骤1：抓取短剧热点"""
-    print_step(1, 5, "抓取短剧热点数据...")
+    print_step(1, 7, "抓取短剧热点数据...")
     
-    # 导入fetch_hotspot模块
     sys.path.insert(0, SCRIPT_DIR)
     from fetch_hotspot import fetch_shortdrama_rank, fetch_douyin_hot, generate_genre_stats
     
@@ -135,11 +145,14 @@ def step1_fetch_hotspot(output_dir):
     return rank_data
 
 
+# ============ 步骤2：生成剧本 ============
+
 def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
     """步骤2：生成剧本（含ComfyUI配置）"""
-    print_step(2, 5, "生成仿制剧本（ComfyUI可执行版）...")
+    print_step(2, 7, "生成仿制剧本（ComfyUI可执行版）...")
     
-    sys.path.insert(0, os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR)
+    scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+    sys.path.insert(0, scripts_dir)
     from generate_script import generate_script as _gen_script, load_templates
     
     templates = load_templates()
@@ -161,9 +174,15 @@ def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
     return filepath, title, script_genre
 
 
+# ============ 步骤3：SDXL生图 ============
+
 def step3_generate_images(workflow_dir, comfyui_running=False):
     """步骤3：SDXL生成分镜图"""
-    print_step(3, 5, "SDXL生成1080P竖屏分镜图...")
+    print_step(3, 7, "SDXL生成1080P竖屏分镜图...")
+    
+    scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+    sys.path.insert(0, scripts_dir)
+    from comfyui_api import check_comfyui_running, submit_workflows_from_dir, wait_for_all_tasks
     
     if not comfyui_running:
         print("  ⏭ ComfyUI未运行，跳过自动生图")
@@ -174,33 +193,28 @@ def step3_generate_images(workflow_dir, comfyui_running=False):
         print(f"    4. 预计耗时: ~2-3分钟（15张图）")
         return False
     
-    # 调用ComfyUI API
+    # 使用ComfyUI API
     try:
-        import urllib.request
-        # 检查ComfyUI是否在线
-        req = urllib.request.Request(f"{COMFYUI_API_URL}/system_stats")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            print("  ✓ ComfyUI服务已连接")
+        if not check_comfyui_running(COMFYUI_API_URL):
+            print(f"  ✗ ComfyUI服务未运行 ({COMFYUI_API_URL})")
+            return False
         
-        # 遍历工作流文件提交任务
+        print("  ✓ ComfyUI服务已连接")
+        
+        # 提交SDXL工作流
         sdxl_files = sorted([f for f in os.listdir(workflow_dir) if f.endswith("_sdxl.json")])
-        for wf_file in sdxl_files:
-            wf_path = os.path.join(workflow_dir, wf_file)
-            with open(wf_path, "r", encoding="utf-8") as f:
-                workflow = json.load(f)
-            
-            # 提交到ComfyUI
-            prompt_data = json.dumps({"prompt": workflow}).encode()
-            req = urllib.request.Request(
-                f"{COMFYUI_API_URL}/prompt",
-                data=prompt_data,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                result = json.loads(resp.read())
-                print(f"  ✓ 已提交: {wf_file} (prompt_id: {result.get('prompt_id', '?')[:8]})")
+        if not sdxl_files:
+            print("  ⚠ 未找到SDXL工作流文件")
+            return False
         
-        print(f"  ✓ 共提交 {len(sdxl_files)} 个SDXL任务")
+        prompt_ids = submit_workflows_from_dir(workflow_dir, COMFYUI_API_URL, suffix="_sdxl.json")
+        print(f"  ✓ 已提交 {len(prompt_ids)} 个SDXL任务")
+        
+        # 轮询等待
+        print("  ⏳ 等待SDXL生图完成...")
+        results = wait_for_all_tasks(prompt_ids, COMFYUI_API_URL, poll_interval=3, timeout=300)
+        completed = sum(1 for v in results.values() if v.get("status") == "success")
+        print(f"  ✓ SDXL生图完成: {completed}/{len(prompt_ids)}")
         return True
         
     except Exception as e:
@@ -209,9 +223,15 @@ def step3_generate_images(workflow_dir, comfyui_running=False):
         return False
 
 
+# ============ 步骤4：Wan2.2生视频 ============
+
 def step4_generate_videos(workflow_dir, comfyui_running=False):
     """步骤4：Wan2.2生成8秒视频"""
-    print_step(4, 5, "Wan2.2 I2V生成8秒竖屏视频...")
+    print_step(4, 7, "Wan2.2 I2V生成8秒竖屏视频...")
+    
+    scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+    sys.path.insert(0, scripts_dir)
+    from comfyui_api import check_comfyui_running, submit_workflows_from_dir, wait_for_all_tasks
     
     if not comfyui_running:
         print("  ⏭ ComfyUI未运行，跳过自动生视频")
@@ -224,24 +244,24 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
         return False
     
     try:
-        import urllib.request
-        wan22_files = sorted([f for f in os.listdir(workflow_dir) if f.endswith("_wan22_i2v.json")])
-        for wf_file in wan22_files:
-            wf_path = os.path.join(workflow_dir, wf_file)
-            with open(wf_path, "r", encoding="utf-8") as f:
-                workflow = json.load(f)
-            
-            prompt_data = json.dumps({"prompt": workflow}).encode()
-            req = urllib.request.Request(
-                f"{COMFYUI_API_URL}/prompt",
-                data=prompt_data,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                result = json.loads(resp.read())
-                print(f"  ✓ 已提交: {wf_file} (prompt_id: {result.get('prompt_id', '?')[:8]})")
+        if not check_comfyui_running(COMFYUI_API_URL):
+            print(f"  ✗ ComfyUI服务未运行 ({COMFYUI_API_URL})")
+            return False
         
-        print(f"  ✓ 共提交 {len(wan22_files)} 个Wan2.2任务")
+        # 提交Wan2.2工作流
+        wan22_files = sorted([f for f in os.listdir(workflow_dir) if f.endswith("_wan22_i2v.json")])
+        if not wan22_files:
+            print("  ⚠ 未找到Wan2.2工作流文件")
+            return False
+        
+        prompt_ids = submit_workflows_from_dir(workflow_dir, COMFYUI_API_URL, suffix="_wan22_i2v.json")
+        print(f"  ✓ 已提交 {len(prompt_ids)} 个Wan2.2任务")
+        
+        # 轮询等待（Wan2.2需要更长时间）
+        print("  ⏳ 等待Wan2.2生视频完成（预计45-75分钟）...")
+        results = wait_for_all_tasks(prompt_ids, COMFYUI_API_URL, poll_interval=10, timeout=5400)
+        completed = sum(1 for v in results.values() if v.get("status") == "success")
+        print(f"  ✓ Wan2.2视频生成完成: {completed}/{len(prompt_ids)}")
         return True
         
     except Exception as e:
@@ -249,9 +269,72 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
         return False
 
 
-def step5_compose_video(video_dir, output_dir):
-    """步骤5：FFmpeg合成最终视频"""
-    print_step(5, 5, "FFmpeg合成最终视频...")
+# ============ 步骤5：TTS配音 ============
+
+def step5_generate_tts(script_path, output_dir):
+    """步骤5：使用Edge TTS生成配音"""
+    print_step(5, 7, "Edge TTS生成配音...")
+    
+    scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+    sys.path.insert(0, scripts_dir)
+    from tts_subtitle import extract_dialogues, generate_tts
+    
+    tts_dir = os.path.join(output_dir, "tts")
+    os.makedirs(tts_dir, exist_ok=True)
+    
+    # 提取对话
+    dialogues = extract_dialogues(script_path)
+    if not dialogues:
+        print("  ⚠ 剧本中未提取到对话，跳过TTS")
+        return None
+    
+    print(f"  ✓ 提取到 {len(dialogues)} 条对话")
+    
+    # 生成配音
+    try:
+        tts_results = generate_tts(dialogues, tts_dir)
+        print(f"  ✓ 生成 {len(tts_results)} 个配音文件")
+        return tts_results
+    except Exception as e:
+        print(f"  ✗ TTS生成失败: {e}")
+        print("  📋 可手动配音或使用其他TTS工具")
+        return None
+
+
+# ============ 步骤6：字幕生成 ============
+
+def step6_generate_subtitles(tts_results, output_dir, script_path=None):
+    """步骤6：生成SRT字幕"""
+    print_step(6, 7, "生成SRT字幕...")
+    
+    scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+    sys.path.insert(0, scripts_dir)
+    from tts_subtitle import generate_srt, generate_srt_from_dialogues, extract_dialogues
+    
+    subtitle_dir = os.path.join(output_dir, "subtitles")
+    os.makedirs(subtitle_dir, exist_ok=True)
+    srt_path = os.path.join(subtitle_dir, f"subtitle_{datetime.now().strftime('%Y%m%d')}.srt")
+    
+    if tts_results:
+        # 基于TTS结果生成字幕（更精确的时间轴）
+        generate_srt(tts_results, srt_path)
+    elif script_path:
+        # 基于剧本对话生成估算时间轴的字幕
+        dialogues = extract_dialogues(script_path)
+        generate_srt_from_dialogues(dialogues, srt_path)
+    else:
+        print("  ⚠ 无TTS结果也无剧本，跳过字幕生成")
+        return None
+    
+    print(f"  ✓ 字幕文件: {srt_path}")
+    return srt_path
+
+
+# ============ 步骤7：FFmpeg合成 ============
+
+def step7_compose_video(video_dir, output_dir, tts_results=None, srt_path=None):
+    """步骤7：FFmpeg合成最终视频（含配音+字幕）"""
+    print_step(7, 7, "FFmpeg合成最终视频...")
     
     # 检查FFmpeg
     try:
@@ -263,7 +346,7 @@ def step5_compose_video(video_dir, output_dir):
         print("  ✗ FFmpeg未找到，请安装后重试")
         return False
     
-    # 查找视频文件
+    # 查找视频片段
     video_files = sorted([
         os.path.join(video_dir, f) for f in os.listdir(video_dir)
         if f.endswith((".mp4", ".webm", ".avi"))
@@ -281,41 +364,87 @@ def step5_compose_video(video_dir, output_dir):
         for vf in video_files:
             f.write(f"file '{vf}'\n")
     
-    output_file = os.path.join(output_dir, f"shortdrama_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
+    # 基础合成文件名
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_output = os.path.join(output_dir, f"shortdrama_{timestamp}.mp4")
     
-    cmd = [
+    # 步骤7a: 拼接视频片段
+    print(f"  合并 {len(video_files)} 个视频片段...")
+    cmd_concat = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", concat_file,
         "-c:v", "libx264", "-crf", "18", "-preset", "medium",
         "-c:a", "aac", "-b:a", "128k",
-        output_file
+        base_output
     ]
-    
-    print(f"  合成 {len(video_files)} 个视频片段...")
-    result = subprocess.run(cmd, capture_output=True, timeout=300)
-    
-    if result.returncode == 0:
-        print(f"  ✓ 合成完成: {output_file}")
-        return True
-    else:
-        print(f"  ✗ 合成失败: {result.stderr.decode()[:200]}")
+    result = subprocess.run(cmd_concat, capture_output=True, timeout=300)
+    if result.returncode != 0:
+        print(f"  ✗ 视频拼接失败: {result.stderr.decode()[:200]}")
         return False
+    print(f"  ✓ 视频拼接完成: {base_output}")
+    
+    current_output = base_output
+    
+    # 步骤7b: 添加TTS配音
+    if tts_results:
+        scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+        sys.path.insert(0, scripts_dir)
+        from tts_subtitle import merge_audio_video
+        
+        audio_paths = [r["audio_path"] for r in tts_results if os.path.exists(r.get("audio_path", ""))]
+        if audio_paths:
+            tts_output = os.path.join(output_dir, f"shortdrama_{timestamp}_tts.mp4")
+            try:
+                merged = merge_audio_video(current_output, audio_paths, tts_output)
+                if merged and os.path.exists(merged):
+                    current_output = merged
+                    print(f"  ✓ TTS配音合成完成: {current_output}")
+                else:
+                    print("  ⚠ TTS配音合成失败，使用无配音版本")
+            except Exception as e:
+                print(f"  ⚠ TTS配音合成异常: {e}，使用无配音版本")
+    
+    # 步骤7c: 烧录字幕
+    if srt_path and os.path.exists(srt_path):
+        scripts_dir = os.path.join(SCRIPT_DIR, "scripts") if os.path.exists(os.path.join(SCRIPT_DIR, "scripts")) else SCRIPT_DIR
+        sys.path.insert(0, scripts_dir)
+        from tts_subtitle import burn_subtitles
+        
+        sub_output = os.path.join(output_dir, f"shortdrama_{timestamp}_final.mp4")
+        try:
+            burned = burn_subtitles(current_output, srt_path, sub_output)
+            if burned and os.path.exists(burned):
+                current_output = burned
+                print(f"  ✓ 字幕烧录完成: {current_output}")
+            else:
+                print("  ⚠ 字幕烧录失败，使用无字幕版本")
+        except Exception as e:
+            print(f"  ⚠ 字幕烧录异常: {e}，使用无字幕版本")
+    
+    print(f"\n  🎬 最终视频: {current_output}")
+    return True
 
 
-def run_pipeline(genre=None, comfyui_running=False):
+# ============ 主Pipeline ============
+
+def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_subtitles=True):
     """执行完整Pipeline"""
     start_time = time.time()
+    total_steps = 7
     
-    print_header("短剧制作Pipeline - 1080P竖屏 (9:16)")
+    print_header("短剧制作Pipeline v3.0 - 1080P竖屏 (9:16)")
     print(f"  硬件: RTX 4080S 32GB RAM")
     print(f"  成本: ¥{COST_PER_HOUR}/小时")
     print(f"  分辨率: 1080x1920")
     print(f"  ComfyUI: {'在线' if comfyui_running else '离线（手动模式）'}")
+    print(f"  TTS配音: {'开启' if enable_tts else '关闭'}")
+    print(f"  字幕: {'开启' if enable_subtitles else '关闭'}")
     
     # 确保输出目录存在
     os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
     os.makedirs(DEFAULT_SCRIPT_DIR, exist_ok=True)
     os.makedirs(DEFAULT_VIDEO_DIR, exist_ok=True)
+    os.makedirs(DEFAULT_TTS_DIR, exist_ok=True)
     
     # 步骤1：抓取热点
     rank_data = step1_fetch_hotspot(DEFAULT_OUTPUT_DIR)
@@ -328,7 +457,6 @@ def run_pipeline(genre=None, comfyui_running=False):
         rank_data, DEFAULT_OUTPUT_DIR, genre=genre, comfyui_mode=True
     )
     
-    # 步骤3：SDXL生图
     # 找到最新生成的工作流目录
     wf_base = os.path.join(DEFAULT_SCRIPT_DIR, "workflows")
     latest_wf = None
@@ -337,18 +465,34 @@ def run_pipeline(genre=None, comfyui_running=False):
         if wf_dirs:
             latest_wf = os.path.join(wf_base, wf_dirs[-1])
     
+    # 步骤3：SDXL生图
     if latest_wf:
         step3_generate_images(latest_wf, comfyui_running)
+    else:
+        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤3")
+    
+    # 步骤4：Wan2.2生视频
+    if latest_wf:
         step4_generate_videos(latest_wf, comfyui_running)
     else:
-        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤3-4")
+        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤4")
     
-    # 步骤5：合成视频
-    step5_compose_video(DEFAULT_VIDEO_DIR, DEFAULT_OUTPUT_DIR)
+    # 步骤5：TTS配音
+    tts_results = None
+    if enable_tts:
+        tts_results = step5_generate_tts(script_path, DEFAULT_OUTPUT_DIR)
+    
+    # 步骤6：字幕生成
+    srt_path = None
+    if enable_subtitles:
+        srt_path = step6_generate_subtitles(tts_results, DEFAULT_OUTPUT_DIR, script_path)
+    
+    # 步骤7：合成视频
+    step7_compose_video(DEFAULT_VIDEO_DIR, DEFAULT_OUTPUT_DIR, tts_results, srt_path)
     
     # 成本汇总
     elapsed = time.time() - start_time
-    cost_info = estimate_cost(num_episodes=1)
+    cost_info = estimate_cost(num_episodes=1, include_tts=enable_tts)
     
     print_header("Pipeline执行完成")
     print(f"  剧名: 《{title}》")
@@ -362,6 +506,9 @@ def run_pipeline(genre=None, comfyui_running=False):
     if latest_wf:
         print(f"    SDXL: 导入 {latest_wf}/scene_XX_sdxl.json")
         print(f"    Wan2.2: 导入 {latest_wf}/scene_XX_wan22_i2v.json")
+        print(f"    组合: 导入 workflows/sdxl_wan22_combined.json (一步到位)")
+    if not enable_tts:
+        print(f"    TTS配音: 加 --tts 参数自动生成配音")
     print()
 
 
@@ -372,43 +519,58 @@ def main():
     if "--cost-estimate" in args:
         # 成本估算模式
         print_header("短剧制作成本估算 (RTX 4080S, ¥1.8/小时)")
-        print("\n| 集数 | 图片数 | 视频数 | 预估时间 | 预估成本 | 每集成本 |")
-        print("|:----:|:------:|:------:|----------|---------:|---------:|")
+        print("\n| 集数 | 图片数 | 视频数 | 含TTS | 预估时间 | 预估成本 | 每集成本 |")
+        print("|:----:|:------:|:------:|:-----:|----------|---------:|---------:|")
         for n in [1, 5, 10, 30, 50, 100]:
-            info = estimate_cost(num_episodes=n)
-            print(f"| {n} | {info['total_images']} | {info['total_videos']} | {info['time']['total_hours']} | {info['cost']['total']} | {info['cost']['total_per_episode']} |")
+            info = estimate_cost(num_episodes=n, include_tts=True)
+            print(f"| {n} | {info['total_images']} | {info['total_videos']} | ✓ | {info['time']['total_hours']} | {info['cost']['total']} | {info['cost']['total_per_episode']} |")
         print()
         return
     
     if "--auto" in args:
         # 全自动模式
         comfyui_running = "--run-comfyui" in args
+        enable_tts = "--tts" in args
+        enable_subtitles = "--subtitles" in args or True  # 默认开启字幕
         genre = None
         for i, arg in enumerate(args):
             if arg == "--genre" and i + 1 < len(args):
                 genre = args[i + 1]
-        run_pipeline(genre=genre, comfyui_running=comfyui_running)
+        run_pipeline(
+            genre=genre, 
+            comfyui_running=comfyui_running,
+            enable_tts=enable_tts,
+            enable_subtitles=enable_subtitles
+        )
         return
     
     # 默认：显示帮助
     print("""
-短剧制作Pipeline v2.0 - 1080P竖屏 (9:16)
+短剧制作Pipeline v3.0 - 1080P竖屏 (9:16)
 
 用法:
-  python pipeline.py --auto                    全自动：抓热点→生成剧本→ComfyUI配置
-  python pipeline.py --auto --genre "霸总"     指定题材
-  python pipeline.py --auto --run-comfyui      全自动+调用ComfyUI API
-  python pipeline.py --cost-estimate           查看成本估算
+  python pipeline.py --auto                         全自动：抓热点→剧本→ComfyUI配置
+  python pipeline.py --auto --genre "霸总"          指定题材
+  python pipeline.py --auto --run-comfyui           全自动+调用ComfyUI API
+  python pipeline.py --auto --run-comfyui --tts     全自动+ComfyUI+TTS配音+字幕
+  python pipeline.py --cost-estimate                查看成本估算
 
-制作流程:
+完整7步流程:
   1. 抓取热点 (酷乐API + 抖音热搜)
-  2. 生成剧本 (含SDXL/Wan2.2提示词)
+  2. 生成剧本 (含SDXL/Wan2.2提示词+ComfyUI工作流JSON)
   3. SDXL生图 (1024x1820 → 1080x1920, ~8-12秒/张)
   4. Wan2.2生视频 (8秒/段, ~3-5分钟/段)
-  5. FFmpeg合成 (字幕+配音)
+  5. TTS配音 (Edge TTS, zh-CN-XiaoxiaoNeural/YunxiNeural)
+  6. 字幕生成 (SRT格式，可烧录到视频)
+  7. FFmpeg合成 (拼接+配音+字幕→最终成品)
+
+新增模块:
+  - scripts/comfyui_api.py     ComfyUI API交互（提交/轮询/获取输出）
+  - scripts/tts_subtitle.py    TTS配音+字幕生成（edge-tts+FFmpeg）
+  - workflows/sdxl_wan22_combined.json  SDXL+Wan2.2组合工作流
 
 硬件: RTX 4080S 32GB RAM
-成本: ¥1.8/小时 → 约¥1.9/集
+成本: ¥1.8/小时 → 约¥2.0/集（含配音）
 分辨率: 1080x1920 (9:16竖屏)
     """)
 
