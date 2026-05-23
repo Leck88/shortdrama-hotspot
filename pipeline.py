@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-短剧制作一键Pipeline v4.1 (Shortdrama Production Pipeline)
+短剧制作一键Pipeline v4.2 (Shortdrama Production Pipeline)
 
-改进点（相比 v4.0）：
-1. 使用 config.py 集中管理配置和路径
-2. 修复 submit_workflows_from_dir 参数不匹配 bug (suffix -> pattern)
-3. 使用 logging 替代 print
-4. 使用 argparse 替代手动 sys.argv 解析
+改进点（相比 v4.1）：
+1. 新增 Flux2-Klein-9B 文生图工作流支持（fp4量化版，1024x1820 → 1080x1920）
+2. 修改 Wan2.2-14B 文生视频工作流为8秒@16fps（832x480 → upscale 1080P）
+3. 修复 comfyui_api.py 缺少 import sys 的 bug
+4. 新增 fetch_hotspot.py 热点抓取模块（带API降级和备选数据）
+5. 修正 fetch_hotspot 导入路径（scripts/ 子目录）
 
 完整7步流程：
   1. 抓取热点 → 2. 生成剧本(含ComfyUI配置) → 3. SDXL生图 →
@@ -111,7 +112,8 @@ def step1_fetch_hotspot(output_dir):
     """步骤1：抓取短剧热点"""
     print_step(1, 7, "抓取短剧热点数据...")
 
-    sys.path.insert(0, SCRIPT_DIR)
+    scripts_dir = str(config.SCRIPTS_PKG_DIR)
+    sys.path.insert(0, scripts_dir)
     from fetch_hotspot import fetch_shortdrama_rank, fetch_douyin_hot, generate_genre_stats
 
     rank_data = fetch_shortdrama_rank()
@@ -408,7 +410,7 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     start_time = time.time()
     cost_per_hour = config.COST_PER_HOUR
 
-    print_header("短剧制作Pipeline v4.1 - 1080P竖屏 (9:16)")
+    print_header("短剧制作Pipeline v4.2 - 1080P竖屏 (9:16)")
     print(f"  硬件: RTX 4080S 32GB RAM")
     print(f"  成本: ¥{cost_per_hour}/小时")
     print(f"  分辨率: 1080x1920")
@@ -491,7 +493,7 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
 
 def parse_args():
     """解析命令行参数"""
-    parser = argparse.ArgumentParser(description="短剧制作Pipeline v4.1")
+    parser = argparse.ArgumentParser(description="短剧制作Pipeline v4.2")
     parser.add_argument("--auto", action="store_true", help="全自动模式")
     parser.add_argument("--run-comfyui", action="store_true", help="调用ComfyUI API生图生视频")
     parser.add_argument("--tts", action="store_true", help="启用TTS配音+字幕")
@@ -537,7 +539,7 @@ def main():
 
     # 默认：显示帮助
     print("""
-短剧制作Pipeline v4.1 - 1080P竖屏 (9:16)
+短剧制作Pipeline v4.2 - 1080P竖屏 (9:16)
 用法:
   python pipeline.py --auto                         全自动：抓热点→剧本→ComfyUI配置
   python pipeline.py --auto --genre "霸总"          指定题材
@@ -547,17 +549,17 @@ def main():
 完整7步流程:
   1. 抓取热点 (酷乐API + 抖音热搜)
   2. 生成剧本 (含SDXL/Wan2.2提示词+ComfyUI工作流JSON)
-  3. SDXL生图 (1024x1820 → 1080x1920, ~8-12秒/张)
-  4. Wan2.2生视频 (8秒/段, ~3-5分钟/段)
+  3. SDXL生图 (1024x1820 → 1080x1920, ~10-15秒/张)
+  4. Wan2.2生视频 (8秒/段, 832x480 → upscale 1080P, ~1-5分钟/段)
   5. TTS配音 (Edge TTS, zh-CN-XiaoxiaoNeural/YunxiNeural)
   6. 字幕生成 (SRT格式，可烧录到视频)
   7. FFmpeg合成 (拼接+配音+字幕→最终成品)
 
-v4.1 改进:
-  - 使用 config.py 集中管理配置
-  - 修复 submit_workflows_from_dir 参数不匹配
-  - 使用 logging + argparse
-  - API 请求带重试+缓存
+v4.2 改进:
+  - 支持 Flux2-Klein-9B fp4 文生图工作流
+  - Wan2.2 视频改为8秒@16fps (129帧)
+  - 修复 comfyui_api.py 缺少 import sys
+  - 新增 fetch_hotspot.py 热点抓取模块
     """)
 
 

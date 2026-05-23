@@ -30,6 +30,7 @@ ComfyUI API文档参考：
 
 import json
 import os
+import sys
 import time
 import urllib.request
 import urllib.error
