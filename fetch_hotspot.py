@@ -397,23 +397,35 @@ def main():
     主流程入口
     
     执行步骤：
-        1. 解析命令行参数（--report, --rank-only, --output）
+        1. 解析命令行参数（--report, --rank-only, --output, --script等）
         2. 获取短剧热度榜数据
         3. 获取抖音热搜数据（--rank-only模式下跳过）
         4. 统计题材分布
         5. 打印控制台摘要
         6. 根据参数生成日报文件或输出JSON
+        7. 如果指定 --script，生成仿制剧本
     """
     # 解析命令行参数
     args = set(sys.argv[1:])
     rank_only = "--rank-only" in args      # 仅获取热度榜，跳过抖音热搜
     gen_report = "--report" in args        # 生成Markdown日报文件
+    gen_script = "--script" in args        # 生成仿制剧本
+    batch_script = "--batch" in args       # 批量生成剧本
     output_dir = None
+    script_genre = None                    # 指定剧本题材
+    script_ref = None                      # 指定参考剧目
+    script_count = 5                       # 批量生成数量
     
-    # 解析 --output 参数（指定报告输出目录）
+    # 解析参数
     for i, arg in enumerate(sys.argv):
         if arg == "--output" and i + 1 < len(sys.argv):
             output_dir = sys.argv[i + 1]
+        elif arg == "--genre" and i + 1 < len(sys.argv):
+            script_genre = sys.argv[i + 1]
+        elif arg == "--ref" and i + 1 < len(sys.argv):
+            script_ref = sys.argv[i + 1]
+        elif arg == "--count" and i + 1 < len(sys.argv):
+            script_count = int(sys.argv[i + 1])
     
     # 步骤1：获取短剧热度榜
     print("[1/3] 获取短剧热度榜...")
@@ -458,6 +470,48 @@ def main():
         }
         print("\n---JSON_OUTPUT---")
         print(json.dumps(result, ensure_ascii=False, indent=2))
+    
+    # 步骤4：生成仿制剧本（如果指定了 --script 或 --batch）
+    if gen_script or batch_script:
+        # 动态导入剧本生成模块
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        scripts_dir = os.path.join(script_dir, "scripts") if os.path.exists(os.path.join(script_dir, "scripts")) else script_dir
+        sys.path.insert(0, scripts_dir)
+        
+        try:
+            from generate_script import generate_script as _gen_script, generate_batch_scripts, load_templates
+        except ImportError:
+            # 尝试从同级目录导入
+            gen_module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generate_script.py")
+            if not os.path.exists(gen_module_path):
+                gen_module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "generate_script.py")
+            print(f"[ERROR] 找不到 generate_script.py，请确认文件位置", file=sys.stderr)
+            sys.exit(1)
+        
+        templates = load_templates()
+        script_output = output_dir or DEFAULT_REPORT_DIR
+        # 剧本保存到 scripts 子目录
+        script_output = os.path.join(os.path.dirname(script_output.rstrip("/").rstrip("\\")), "shortdrama", "scripts")
+        
+        if batch_script:
+            print(f"\n[4/4] 批量生成 {script_count} 个仿制剧本...")
+            results = generate_batch_scripts(
+                rank_data, count=script_count,
+                templates=templates, output_dir=script_output
+            )
+            print(f"\n🎬 批量生成 {len(results)} 个剧本：")
+            for title, genre, filepath in results:
+                print(f"  [{genre}] 《{title}》→ {filepath}")
+        else:
+            print("\n[4/4] 生成仿制剧本...")
+            content, filepath, title, genre = _gen_script(
+                rank_data, genre=script_genre, ref_title=script_ref,
+                templates=templates, output_dir=script_output
+            )
+            print(f"\n🎬 剧本已生成：")
+            print(f"  题材: {genre}")
+            print(f"  剧名: 《{title}》")
+            print(f"  文件: {filepath}")
 
 
 if __name__ == "__main__":
