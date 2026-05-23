@@ -1,0 +1,11 @@
+# 报告输出目录
+reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
