@@ -1,6 +1,6 @@
 {
-  "last_node_id": 15,
-  "last_link_id": 16,
+  "last_node_id": 8,
+  "last_link_id": 10,
   "nodes": [
     {
       "id": 1,
@@ -102,7 +102,7 @@
     },
     {
       "id": 7,
-      "type": "ImageResize",
+      "type": "ImageScale",
       "pos": [1350, 300],
       "size": [320, 180],
       "flags": {},
@@ -114,7 +114,7 @@
       "outputs": [
         {"name": "IMAGE", "type": "IMAGE", "links": [10]}
       ],
-      "title": "Resize到1080x1920",
+      "title": "ImageScale到1080x1920",
       "widgets_values": [1080, 1920, "lanczos"]
     },
     {
@@ -148,6 +148,15 @@
     "title": "SDXL 1080P竖屏短剧分镜生成",
     "usage": "替换{{POSITIVE_PROMPT}}为分镜提示词，{SCENE_ID}为场次编号",
     "resolution": "1024x1820 → 1080x1920",
+    "nodes": {
+      "CheckpointLoaderSimple": "ComfyUI内置节点，加载SDXL模型",
+      "CLIPTextEncode": "ComfyUI内置节点，编码正/反向提示词",
+      "EmptySDXLLatentImage": "ComfyUI内置节点，生成空Latent",
+      "KSampler": "ComfyUI内置节点，K采样器",
+      "VAEDecode": "ComfyUI内置节点，VAE解码",
+      "ImageScale": "ComfyUI内置节点，缩放图片到目标分辨率(支持lanczos/bicubic/bilinear/nearest_exact)",
+      "SaveImage": "ComfyUI内置节点，保存图片"
+    },
     "time_4080S": "约8-12秒/张"
   }
 }
