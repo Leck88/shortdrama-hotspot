@@ -32,10 +32,14 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
+# 项目内部模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import config
+
 # Python解释器路径（用于edge-tts的异步通信）
 PYTHON_EXE = os.environ.get(
     "SHORTDRAMA_PYTHON",
-    r"C:\Users\H\.workbuddy\binaries\python\versions\3.13.12\python.exe"
+    os.sys.executable  # 默认使用当前 Python 解释器，不再硬编码路径
 )
 
 # 默认语音配置

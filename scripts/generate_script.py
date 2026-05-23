@@ -23,11 +23,17 @@
 """
 
 import json
+import logging
 import os
 import random
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# 项目内部模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import config
+from utils.genre import classify_genre as _shared_classify_genre
 
 # ============ 配置 ============
 
@@ -208,25 +214,8 @@ def load_comfyui_config():
 
 
 def classify_genre(title):
-    """根据剧名分类题材"""
-    genre_map = {
-        "霸总": ["总裁", "霸总", "首富", "CEO", "豪门", "先生是个狠"],
-        "婚恋": ["婚", "妻", "夫", "领证", "闪婚", "新婚", "宠妻", "备孕", "婚约"],
-        "甜宠": ["甜", "宠", "恋", "爱", "娇", "吻", "上瘾", "只对她"],
-        "逆袭": ["逆袭", "翻身", "崛起", "无敌", "巅峰", "摊牌", "不好惹", "战将"],
-        "重生": ["重生", "回到", "穿越", "前世", "八零"],
-        "古装": ["皇", "帝", "妃", "宫", "朝", "侯", "将军", "古装", "太子", "主母"],
-        "复仇": ["复仇", "报仇", "复仇者", "血债", "恩断"],
-        "悬疑": ["谜", "案", "侦探", "真相", "谍", "查案", "秘密"],
-        "战神": ["战龙", "战神", "枭雄", "修仙", "化神"],
-        "逆袭/翻盘": ["离婚", "出狱", "撤资", "逃出"],
-    }
-    
-    genres = []
-    for genre, keywords in genre_map.items():
-        if any(kw in title for kw in keywords):
-            genres.append(genre)
-    return genres if genres else ["其他"]
+    """根据剧名分类题材（委托给共享模块 utils.genre）"""
+    return _shared_classify_genre(title)
 
 
 # ============ 爆款拆解 ============

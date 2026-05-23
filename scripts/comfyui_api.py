@@ -36,9 +36,13 @@ import urllib.error
 import urllib.parse
 from typing import Optional
 
+# 项目内部模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import config
+
 
 # 默认ComfyUI API地址
-DEFAULT_BASE_URL = "http://127.0.0.1:8188"
+DEFAULT_BASE_URL = config.COMFYUI_API_URL
 
 # 轮询配置
 DEFAULT_POLL_INTERVAL = 3      # 轮询间隔（秒）

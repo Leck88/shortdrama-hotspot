@@ -196,3 +196,41 @@ if check_comfyui_running():
 ## License
 
 MIT
+
+
+## v4.1 更新日志 (2026-05-23)
+
+### 🏗️ 架构重构
+- **新增 `config.py`**：集中配置管理，所有路径、API地址、参数统一维护，支持环境变量覆盖
+- **新增 `utils/genre.py`**：题材分类共享模块，消除 `fetch_hotspot.py` 和 `generate_script.py` 中的重复 `classify_genre` 函数
+- **新增 `utils/api_helpers.py`**：API 请求辅助模块，带重试（指数退避）、磁盘缓存、结构化日志
+- **新增 `requirements.txt` + `pyproject.toml`**：规范依赖管理和项目打包
+
+### 🐛 Bug 修复
+- **修复 `--comfyui` 参数不生效**：`fetch_hotspot.py` 中 `--comfyui` 参数被解析但从未传递给剧本生成函数
+- **修复 `submit_workflows_from_dir` 参数不匹配**：`pipeline.py` 调用时传了 `suffix` 参数，但函数定义使用 `pattern`
+- **移除硬编码路径**：`D:\视频生产\...` 和 `C:\Users\H\.workbuddy\...` 等硬编码路径全部改为通过 config 管理
+
+### 🔧 代码质量
+- 使用 `logging` 模块替代 `print`，支持日志级别控制
+- 使用 `argparse` 替代手动 `sys.argv` 解析，提供 `--help` 和参数校验
+- API 请求增加重试机制（指数退避，默认3次），免费接口不再容易因超时失败
+- 增加磁盘缓存，同一小时内的重复 API 请求直接读取缓存
+
+### 🧪 测试
+- **新增 `tests/test_genre.py`**：题材分类单元测试（14个用例，覆盖全部10种题材）
+- **新增 `tests/test_config.py`**：配置模块单元测试（5个用例）
+- 所有 19 个测试通过
+
+### 📁 新增文件
+```
+config.py                  # 集中配置管理
+utils/__init__.py          # 共享模块入口
+utils/genre.py             # 题材分类
+utils/api_helpers.py       # API请求辅助
+requirements.txt           # 依赖清单
+pyproject.toml             # 项目打包配置
+tests/__init__.py          # 测试入口
+tests/test_genre.py        # 题材测试
+tests/test_config.py       # 配置测试
+```
