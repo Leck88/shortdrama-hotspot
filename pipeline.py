@@ -20,7 +20,7 @@
   python pipeline.py --from-script <script.md> # 从已有剧本生成ComfyUI工作流+TTS
   python pipeline.py --cost-estimate           # 仅计算成本估算
 
-硬件环境：RTX 4080S 32GB RAM
+硬件环境：RTX 5060 Ti 32GB RAM
 成本：1.8元/小时 (AutoDL云算力)
 分辨率：1080x1920 (9:16竖屏)
 """
@@ -102,7 +102,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, incl
             "total": f"¥{total_cost:.2f}",
             "total_per_episode": f"¥{total_cost/max(num_episodes,1):.2f}",
         },
-        "hardware": "RTX 4080S 32GB RAM",
+        "hardware": "RTX 5060 Ti 32GB RAM",
         "rate": f"¥{cost_per_hour}/小时",
     }
 
@@ -418,7 +418,7 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     cost_per_hour = config.COST_PER_HOUR
 
     print_header("短剧制作Pipeline v4.2 - 1080P竖屏 (9:16)")
-    print(f"  硬件: RTX 4080S 32GB RAM")
+    print(f"  硬件: RTX 5060 Ti 32GB RAM")
     print(f"  成本: ¥{cost_per_hour}/小时")
     print(f"  分辨率: 1080x1920")
     print(f"  ComfyUI: {'在线' if comfyui_running else '离线（手动模式）'}")
@@ -513,7 +513,7 @@ def main():
 
     if args.cost_estimate:
         cost_per_hour = config.COST_PER_HOUR
-        print_header(f"短剧制作成本估算 (RTX 4080S, ¥{cost_per_hour}/小时)")
+        print_header(f"短剧制作成本估算 (RTX 5060 Ti, ¥{cost_per_hour}/小时)")
         print("\n| 集数 | 图片数 | 视频数 | 含TTS | 预估时间 | 预估成本 | 每集成本 |")
         print("|:----:|:------:|:------:|:-----:|----------|---------:|---------:|")
         for n in [1, 5, 10, 30, 50, 100]:
