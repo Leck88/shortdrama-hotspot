@@ -155,8 +155,8 @@
       ],
       "title": "ImageScale (Wan2.2输入832x480)",
       "widgets_values": [
-        832,
-        480,
+        576,
+        1024,
         "lanczos",
         "disabled"
       ]
@@ -283,8 +283,8 @@
       ],
       "title": "Wan2.2 I2V 核心节点",
       "widgets_values": [
-        832,
-        480,
+        576,
+        1024,
         64,
         8
       ]
@@ -406,7 +406,7 @@
       "widgets": {
         "frame_rate": 8,
         "loop_count": 0,
-        "filename_prefix": "shortdrama/video_scene_{SCENE_ID}",
+        "filename_prefix": "shortdrama/720p_video_scene",
         "format": "video/h264-mp4",
         "codec": "h264",
         "pingpong": false,
