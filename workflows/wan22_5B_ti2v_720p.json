@@ -1,0 +1,31 @@
+{
+  "name": "Wan2.2 5B TI2V 图生视频（已验证RTX5060Ti 8GB）",
+  "description": "官方Wan2.2 5B模型，576x1024竖屏，81帧8fps，约2分钟/段",
+  "nodes": [
+    {"id": 1, "type": "UNETLoader", "widgets_values": ["wan2.2_ti2v_5B_fp16.safetensors", "default"], "inputs": []},
+    {"id": 2, "type": "CLIPLoader", "widgets_values": ["t5xxl_cogvideox_fp8_e4m3fn.safetensors", "cogvideox"], "inputs": []},
+    {"id": 3, "type": "VAELoader", "widgets_values": ["wan2.2_vae.safetensors"], "inputs": []},
+    {"id": 4, "type": "LoadImage", "widgets_values": ["example.png", "image"], "inputs": []},
+    {"id": 5, "type": "CLIPTextEncode", "widgets_values": ["positive prompt here"], "inputs": [{"name": "clip", "link": 1}]},
+    {"id": 6, "type": "CLIPTextEncode", "widgets_values": ["low quality, blurry, distorted"], "inputs": [{"name": "clip", "link": 2}]},
+    {"id": 7, "type": "Wan22ImageToVideoLatent", "widgets_values": [576, 1024, 81, 1], "inputs": [{"name": "vae", "link": 3}, {"name": "start_image", "link": 4}]},
+    {"id": 8, "type": "KSampler", "widgets_values": [-1, "randomize", 20, 7.0], "inputs": [{"name": "model", "link": 5}, {"name": "positive", "link": 6}, {"name": "negative", "link": 7}, {"name": "latent_image", "link": 8}]},
+    {"id": 9, "type": "VAEDecode", "inputs": [{"name": "samples", "link": 9}, {"name": "vae", "link": 10}]},
+    {"id": 10, "type": "CreateVideo", "widgets_values": [8], "inputs": [{"name": "images", "link": 11}]},
+    {"id": 11, "type": "SaveVideo", "widgets_values": ["video/wan_5b", "auto", "auto"], "inputs": [{"name": "video", "link": 12}]}
+  ],
+  "links": [
+    [1, 2, 0, 5, 0, "CLIP"],
+    [2, 2, 0, 6, 0, "CLIP"],
+    [3, 3, 0, 7, 0, "VAE"],
+    [4, 4, 0, 7, 1, "IMAGE"],
+    [5, 1, 0, 8, 0, "MODEL"],
+    [6, 5, 0, 8, 1, "CONDITIONING"],
+    [7, 6, 0, 8, 2, "CONDITIONING"],
+    [8, 7, 0, 8, 3, "LATENT"],
+    [9, 8, 0, 9, 0, "LATENT"],
+    [10, 3, 0, 9, 1, "VAE"],
+    [11, 9, 0, 10, 0, "IMAGE"],
+    [12, 10, 0, 11, 0, "VIDEO"]
+  ]
+}
