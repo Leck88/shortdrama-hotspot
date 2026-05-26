@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shortdrama-hotspot"
-version = "4.1.0"
+version = "4.3.0"
 description = "短剧热点监控 + 仿制剧本 + ComfyUI一键生成 + TTS配音+字幕"
 readme = "README.md"
 license = {text = "MIT"}

@@ -20,9 +20,9 @@
   python pipeline.py --from-script <script.md> # 从已有剧本生成ComfyUI工作流+TTS
   python pipeline.py --cost-estimate           # 仅计算成本估算
 
-硬件环境：RTX 5060 Ti 32GB RAM
+硬件环境：RTX 5060 Ti 8GB RAM
 成本：1.8元/小时 (AutoDL云算力)
-分辨率：1080x1920 (9:16竖屏)
+分辨率：720x1280 (9:16竖屏)
 """
 
 import argparse
@@ -102,7 +102,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, incl
             "total": f"¥{total_cost:.2f}",
             "total_per_episode": f"¥{total_cost/max(num_episodes,1):.2f}",
         },
-        "hardware": "RTX 5060 Ti 32GB RAM",
+        "hardware": "RTX 5060 Ti 8GB RAM",
         "rate": f"¥{cost_per_hour}/小时",
     }
 
@@ -173,8 +173,8 @@ def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
 
 # ============ 步骤3：SDXL生图 ============
 def step3_generate_images(workflow_dir, comfyui_running=False):
-    """步骤3：SDXL生成分镜图"""
-    print_step(3, 7, "SDXL生成1080P竖屏分镜图...")
+    """步骤3：SDXL生成720P竖屏分镜图"""
+    print_step(3, 7, "SDXL生成720P竖屏分镜图...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -220,8 +220,8 @@ def step3_generate_images(workflow_dir, comfyui_running=False):
 
 # ============ 步骤4：Wan2.2生视频 ============
 def step4_generate_videos(workflow_dir, comfyui_running=False):
-    """步骤4：Wan2.2生成8秒视频"""
-    print_step(4, 7, "Wan2.2 I2V生成8秒竖屏视频...")
+    """步骤4：Wan2.2生成8秒720P竖屏视频"""
+    print_step(4, 7, "Wan2.2 I2V生成8秒720P竖屏视频...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -236,7 +236,7 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
         print(f"    2. 导入工作流: {workflow_dir}/scene_XX_wan22_i2v.json")
         print("    3. 在LoadImage节点选择对应分镜图")
         print("    4. 点击Queue Prompt执行")
-        print(f"    5. 预计耗时: ~45-75分钟（15段视频 × 3-5分钟/段）")
+        print(f"    5. 预计耗时: ~22-45分钟（15段视频 × 1.5-3分钟/段）")
         return False
 
     try:
@@ -252,8 +252,8 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
 
         print(f"  ✓ 已提交 {len(prompt_ids)} 个Wan2.2任务")
 
-        print("  ⏳ 等待Wan2.2生视频完成（预计45-75分钟）...")
-        results = wait_for_all_tasks(prompt_ids, comfyui_url, poll_interval=10, timeout=5400)
+        print("  ⏳ 等待Wan2.2生视频完成（预计22-45分钟）...")
+        results = wait_for_all_tasks(prompt_ids, comfyui_url, poll_interval=10, timeout=3600)
         completed = sum(1 for v in results.values() if v.get("status") == "completed")
         print(f"  ✓ Wan2.2视频生成完成: {completed}/{len(prompt_ids)}")
         return True
@@ -417,10 +417,10 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     start_time = time.time()
     cost_per_hour = config.COST_PER_HOUR
 
-    print_header("短剧制作Pipeline v4.2 - 1080P竖屏 (9:16)")
-    print(f"  硬件: RTX 5060 Ti 32GB RAM")
+    print_header("短剧制作Pipeline v4.2 - 720P竖屏 (9:16)")
+    print(f"  硬件: RTX 5060 Ti 8GB RAM")
     print(f"  成本: ¥{cost_per_hour}/小时")
-    print(f"  分辨率: 1080x1920")
+    print(f"  分辨率: 720x1280")
     print(f"  ComfyUI: {'在线' if comfyui_running else '离线（手动模式）'}")
     print(f"  TTS配音: {'开启' if enable_tts else '关闭'}")
     print(f"  字幕: {'开启' if enable_subtitles else '关闭'}")
@@ -476,7 +476,7 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     print(f"  剧名: 《{title}》")
     print(f"  题材: {script_genre}")
     print(f"  剧本: {script_path}")
-    print(f"  分辨率: 1080x1920 (9:16竖屏)")
+    print(f"  分辨率: 720x1280 (9:16竖屏)")
     print(f"  预估制作时间: {cost_info['time']['total_readable']}")
     print(f"  预估制作成本: {cost_info['cost']['total']}")
     print(f"  本次Pipeline耗时: {elapsed:.1f}秒")
@@ -513,7 +513,7 @@ def main():
 
     if args.cost_estimate:
         cost_per_hour = config.COST_PER_HOUR
-        print_header(f"短剧制作成本估算 (RTX 5060 Ti, ¥{cost_per_hour}/小时)")
+        print_header(f"短剧制作成本估算 (RTX 5060 Ti 8GB, ¥{cost_per_hour}/小时)")
         print("\n| 集数 | 图片数 | 视频数 | 含TTS | 预估时间 | 预估成本 | 每集成本 |")
         print("|:----:|:------:|:------:|:-----:|----------|---------:|---------:|")
         for n in [1, 5, 10, 30, 50, 100]:
@@ -538,7 +538,7 @@ def main():
 
     # 默认：显示帮助
     print("""
-短剧制作Pipeline v4.2 - 1080P竖屏 (9:16)
+短剧制作Pipeline v4.2 - 720P竖屏 (9:16)
 用法:
   python pipeline.py --auto                         全自动：抓热点→剧本→ComfyUI配置
   python pipeline.py --auto --genre "霸总"          指定题材
@@ -548,8 +548,8 @@ def main():
 完整7步流程:
   1. 抓取热点 (酷乐API + 抖音热搜)
   2. 生成剧本 (含SDXL/Wan2.2提示词+ComfyUI工作流JSON)
-  3. SDXL生图 (1024x1820 → 1080x1920, ~10-15秒/张)
-  4. Wan2.2生视频 (8秒/段, 832x480 → upscale 1080P, ~1-5分钟/段)
+  3. SDXL生图 (768x1344 → 720x1280, ~10-15秒/张)
+  4. Wan2.2生视频 (8秒/段, 832x480 → upscale 720P, ~1.5-3分钟/段)
   5. TTS配音 (Edge TTS, zh-CN-XiaoxiaoNeural/YunxiNeural)
   6. 字幕生成 (SRT格式，可烧录到视频)
   7. FFmpeg合成 (拼接+配音+字幕→最终成品)

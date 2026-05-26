@@ -613,7 +613,7 @@ def _srt_to_ass(
     ass_header = f"""[Script Info]
 Title: Shortdrama Subtitles
 ScriptType: v4.00+
-PlayResX: 1080
+PlayResX: 720
 PlayResY: 1920
 WrapStyle: 0
 

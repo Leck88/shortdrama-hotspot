@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-修改两个 ComfyUI 工作流 JSON 文件，适配短剧 1080P 竖屏 8秒视频流水线
+修改两个 ComfyUI 工作流 JSON 文件，适配短剧 720P 竖屏 8秒视频流水线
 
-修改1: Flux2-Klein-9B 文生图 → 1024x1820 输出 + ImageScale 到 1080x1920
+修改1: Flux2-Klein-9B 文生图 → 768x1344 输出 + ImageScale 到 720x1280
 修改2: Wan2.2-14B 文生视频 → 832x480 @ 129帧(8秒@16fps)
 """
 
@@ -17,10 +17,10 @@ def modify_flux2_klein(input_path, output_path):
     修改 Flux2-Klein-9B 文生图工作流
     
     关键修改：
-    1. 子图内 PrimitiveInt Height: 1024 → 1820
-    2. 子图内 EmptyFlux2LatentImage: [1024, 1024, 1] → [1024, 1820, 1]
-    3. 子图内 Flux2Scheduler: [20, 1024, 1024] → [20, 1024, 1820]
-    4. 增加 ImageScale 节点：将输出缩放到 1080x1920
+    1. 子图内 PrimitiveInt Height: 1024 → 1344 (720P竖屏)
+    2. 子图内 EmptyFlux2LatentImage: [1024, 1024, 1] → [768, 1344, 1]
+    3. 子图内 Flux2Scheduler: [20, 1024, 1024] → [20, 768, 1344]
+    4. 增加 ImageScale 节点：将输出缩放到 720x1280
     5. SaveImage 前缀改为 shortdrama/scene_{SCENE_ID}
     """
     with open(input_path, 'r', encoding='utf-8') as f:
@@ -96,13 +96,13 @@ def modify_flux2_klein(input_path, output_path):
                 "links": [new_last_link_id + 1]
             }
         ],
-        "title": "ImageScale到1080x1920",
+        "title": "ImageScale到720x1280",
         "properties": {
             "cnr_id": "comfy-core",
             "ver": "0.8.2",
             "Node name for S&R": "ImageScale"
         },
-        "widgets_values": [1080, 1920, "lanczos"]
+        "widgets_values": [720, 1280, "lanczos"]
     }
     
     workflow["nodes"].append(imagescale_node)
@@ -140,15 +140,15 @@ def modify_flux2_klein(input_path, output_path):
     
     # 添加 _readme
     workflow["_readme"] = {
-        "title": "Flux2-Klein-9B 文生图 1080P竖屏（fp4量化）",
+        "title": "Flux2-Klein-9B 文生图 720P竖屏（fp4量化）",
         "usage": "替换{{POSITIVE_PROMPT}}为分镜提示词，{SCENE_ID}为场次编号",
-        "resolution": "1024x1820 → 1080x1920",
-        "pipeline_step": "步骤3: SDXL生图（1024x1820 → 1080x1920）",
+        "resolution": "768x1344 → 720x1280",
+        "pipeline_step": "步骤3: SDXL生图（768x1344 → 720x1280）",
         "modifications": [
-            "子图内 Height: 1024 → 1820",
-            "EmptyFlux2LatentImage: [1024, 1024, 1] → [1024, 1820, 1]",
-            "Flux2Scheduler: [20, 1024, 1024] → [20, 1024, 1820]",
-            "新增 ImageScale 节点: 缩放到 1080x1920 (lanczos)",
+            "子图内 Height: 1024 → 1344",
+            "EmptyFlux2LatentImage: [1024, 1024, 1] → [768, 1344, 1]",
+            "Flux2Scheduler: [20, 1024, 1024] → [20, 768, 1344]",
+            "新增 ImageScale 节点: 缩放到 720x1280 (lanczos)",
             "SaveImage 前缀: shortdrama/scene_{SCENE_ID}"
         ],
         "model_requirements": {
@@ -204,14 +204,14 @@ def modify_wan22_t2v(input_path, output_path):
     # 添加 _readme
     workflow["_readme"] = {
         "title": "Wan2.2-14B 文生视频 4步 LoRA (832x480, 8秒)",
-        "usage": "替换正向提示词为视频描述，输出 8秒 480P 视频后可 upscale 到 1080P",
-        "resolution": "832x480 (可后处理 upscale 到 1080x1920)",
+        "usage": "替换正向提示词为视频描述，输出 8秒 480P 视频后可 upscale 到 720P",
+        "resolution": "832x480 (可后处理 upscale 到 720x1280)",
         "video_duration": "8秒 (129帧 @ 16fps)",
-        "pipeline_step": "步骤4: Wan2.2 I2V（8秒视频，832x480 → upscale 1080P）",
+        "pipeline_step": "步骤4: Wan2.2 I2V（8秒视频，832x480 → upscale 720P）",
         "modifications": [
             "EmptyHunyuanLatentVideo (node 74, 104): [640,640,81,1] → [832,480,129,1]",
             "VHS_VideoCombine 前缀: shortdrama/video_scene_{SCENE_ID}",
-            "注意：此为 T2V（文生视频）工作流，如需 I2V（图生视频）请使用 wan22_i2v_1080p_8s.json"
+            "注意：此为 T2V（文生视频）工作流，如需 I2V（图生视频）请使用 wan22_i2v_720p_8s_8B.json"
         ],
         "model_requirements": {
             "unet_high_noise": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     workflows_dir = os.path.join(base_dir, "workflows")
     
     print("=" * 60)
-    print("  修改 ComfyUI 工作流 - 短剧 1080P 竖屏 8秒视频")
+    print("  修改 ComfyUI 工作流 - 短剧 720P 竖屏 8秒视频")
     print("=" * 60)
     
     # 修改 Flux2-Klein 工作流
