@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-短剧制作一键Pipeline v4.2 (Shortdrama Production Pipeline)
+短剧制作一键Pipeline v5.0 (Shortdrama Production Pipeline) —— 配音先行版
 
 改进点（相比 v4.1）：
 1. 新增 Flux2-Klein-9B 文生图工作流支持（fp4量化版，1024x1820 → 1080x1920）
@@ -9,20 +9,24 @@
 4. 新增 fetch_hotspot.py 热点抓取模块（带API降级和备选数据）
 5. 修正 fetch_hotspot 导入路径（scripts/ 子目录）
 
-完整7步流程：
-  1. 抓取热点 → 2. 生成剧本(含ComfyUI配置) → 3. SDXL生图 →
-  4. Wan2.2生视频 → 5. TTS配音 → 6. 字幕生成 → 7. FFmpeg合成
+完整8步流程（配音先行）：
+  1. 抓取热点 → 2. 生成剧本(含对白/旁白) →
+  3. TTS配音先行 → 4. 分镜规划(根据音频时长) →
+  5. SDXL生图 → 6. Wan2.2生视频 →
+  7. 字幕生成 → 8. FFmpeg合成
+
+核心思路：配音先行，音频时长决定分镜张数和停留节奏，画面和声音完美同步。
 
 使用方式：
-  python pipeline.py --auto                    # 全自动：抓热点→生成剧本→ComfyUI配置
+  python pipeline.py --auto                    # 全自动：抓热点→生成剧本→TTS先行
   python pipeline.py --auto --run-comfyui      # 全自动+调用ComfyUI（需ComfyUI服务运行中）
   python pipeline.py --auto --run-comfyui --tts # 全自动+ComfyUI+TTS配音+字幕
-  python pipeline.py --from-script <script.md> # 从已有剧本生成ComfyUI工作流+TTS
+  python pipeline.py --from-script <script.md> # 从已有剧本开始（跳过抓热点，直接配音→分镜→合成）
   python pipeline.py --cost-estimate           # 仅计算成本估算
 
-硬件环境：RTX 5060 Ti 8GB RAM
+硬件环境：RTX 5060 Ti 32GB RAM
 成本：1.8元/小时 (AutoDL云算力)
-分辨率：720x1280 (9:16竖屏)
+分辨率：1080x1920 (9:16竖屏)
 """
 
 import argparse
@@ -102,7 +106,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, incl
             "total": f"¥{total_cost:.2f}",
             "total_per_episode": f"¥{total_cost/max(num_episodes,1):.2f}",
         },
-        "hardware": "RTX 5060 Ti 8GB RAM",
+        "hardware": "RTX 5060 Ti 32GB RAM",
         "rate": f"¥{cost_per_hour}/小时",
     }
 
@@ -110,7 +114,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, incl
 # ============ 步骤1：抓取热点 ============
 def step1_fetch_hotspot(output_dir):
     """步骤1：抓取短剧热点"""
-    print_step(1, 7, "抓取短剧热点数据...")
+    print_step(1, 8, "抓取短剧热点数据...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -138,8 +142,8 @@ def step1_fetch_hotspot(output_dir):
 
 # ============ 步骤2：生成剧本 ============
 def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
-    """步骤2：生成剧本（含ComfyUI配置）"""
-    print_step(2, 7, "生成仿制剧本（ComfyUI可执行版）...")
+    """步骤2：生成剧本（含对白/旁白）"""
+    print_step(2, 8, "生成仿制剧本（含对白/旁白）...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -173,8 +177,8 @@ def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
 
 # ============ 步骤3：SDXL生图 ============
 def step3_generate_images(workflow_dir, comfyui_running=False):
-    """步骤3：SDXL生成720P竖屏分镜图"""
-    print_step(3, 7, "SDXL生成720P竖屏分镜图...")
+    """步骤4/5：SDXL生成分镜图（在TTS配音之后，分镜张数由音频时长决定）"""
+    print_step(5, 8, "SDXL生成1080P竖屏分镜图...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -220,8 +224,8 @@ def step3_generate_images(workflow_dir, comfyui_running=False):
 
 # ============ 步骤4：Wan2.2生视频 ============
 def step4_generate_videos(workflow_dir, comfyui_running=False):
-    """步骤4：Wan2.2生成8秒720P竖屏视频"""
-    print_step(4, 7, "Wan2.2 I2V生成8秒720P竖屏视频...")
+    """步骤6：Wan2.2 I2V生成竖屏视频"""
+    print_step(6, 8, "Wan2.2 I2V生成竖屏视频...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -236,7 +240,7 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
         print(f"    2. 导入工作流: {workflow_dir}/scene_XX_wan22_i2v.json")
         print("    3. 在LoadImage节点选择对应分镜图")
         print("    4. 点击Queue Prompt执行")
-        print(f"    5. 预计耗时: ~22-45分钟（15段视频 × 1.5-3分钟/段）")
+        print(f"    5. 预计耗时: ~45-75分钟（15段视频 × 3-5分钟/段）")
         return False
 
     try:
@@ -252,8 +256,8 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
 
         print(f"  ✓ 已提交 {len(prompt_ids)} 个Wan2.2任务")
 
-        print("  ⏳ 等待Wan2.2生视频完成（预计22-45分钟）...")
-        results = wait_for_all_tasks(prompt_ids, comfyui_url, poll_interval=10, timeout=3600)
+        print("  ⏳ 等待Wan2.2生视频完成（预计45-75分钟）...")
+        results = wait_for_all_tasks(prompt_ids, comfyui_url, poll_interval=10, timeout=5400)
         completed = sum(1 for v in results.values() if v.get("status") == "completed")
         print(f"  ✓ Wan2.2视频生成完成: {completed}/{len(prompt_ids)}")
         return True
@@ -263,10 +267,10 @@ def step4_generate_videos(workflow_dir, comfyui_running=False):
         return False
 
 
-# ============ 步骤5：TTS配音 ============
+    # ============ 步骤3（原步骤5）：TTS配音先行 ============
 def step5_generate_tts(script_path, output_dir):
-    """步骤5：使用Edge TTS生成配音"""
-    print_step(5, 7, "Edge TTS生成配音...")
+    """步骤3：TTS配音先行——根据剧本生成配音，先出音频再出分镜"""
+    print_step(3, 8, "TTS配音先行...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -294,8 +298,8 @@ def step5_generate_tts(script_path, output_dir):
 
 # ============ 步骤6：字幕生成 ============
 def step6_generate_subtitles(tts_results, output_dir, script_path=None):
-    """步骤6：生成SRT字幕"""
-    print_step(6, 7, "生成SRT字幕...")
+    """步骤7：生成SRT字幕"""
+    print_step(7, 8, "生成SRT字幕...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -320,8 +324,8 @@ def step6_generate_subtitles(tts_results, output_dir, script_path=None):
 
 # ============ 步骤7：FFmpeg合成 ============
 def step7_compose_video(video_dir, output_dir, tts_results=None, srt_path=None):
-    """步骤7：FFmpeg合成最终视频（含配音+字幕）"""
-    print_step(7, 7, "FFmpeg合成最终视频...")
+    """步骤8：FFmpeg合成最终视频（含配音+字幕）"""
+    print_step(8, 8, "FFmpeg合成最终视频...")
 
     # 检查FFmpeg
     try:
@@ -417,12 +421,13 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     start_time = time.time()
     cost_per_hour = config.COST_PER_HOUR
 
-    print_header("短剧制作Pipeline v4.2 - 720P竖屏 (9:16)")
-    print(f"  硬件: RTX 5060 Ti 8GB RAM")
+    print_header("短剧制作Pipeline v5.0 - 配音先行版 (9:16)")
+    print(f"  硬件: RTX 5060 Ti 32GB RAM")
     print(f"  成本: ¥{cost_per_hour}/小时")
-    print(f"  分辨率: 720x1280")
+    print(f"  分辨率: 1080x1920")
+    print(f"  流程: 剧本→【TTS配音先行】→分镜→视频→合成")
     print(f"  ComfyUI: {'在线' if comfyui_running else '离线（手动模式）'}")
-    print(f"  TTS配音: {'开启' if enable_tts else '关闭'}")
+    print(f"  TTS配音: {'开启（先行模式）' if enable_tts else '关闭'}")
     print(f"  字幕: {'开启' if enable_subtitles else '关闭'}")
 
     # 确保输出目录存在
@@ -443,29 +448,30 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
         rank_data, output_dir, genre=genre, comfyui_mode=True
     )
 
-    # 步骤3：SDXL生图
-    if latest_wf and os.path.exists(latest_wf):
-        step3_generate_images(latest_wf, comfyui_running)
-    else:
-        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤3")
-
-    # 步骤4：Wan2.2生视频
-    if latest_wf and os.path.exists(latest_wf):
-        step4_generate_videos(latest_wf, comfyui_running)
-    else:
-        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤4")
-
-    # 步骤5：TTS配音
+    # 步骤3：TTS配音先行（在生图之前！）
     tts_results = None
     if enable_tts:
         tts_results = step5_generate_tts(script_path, output_dir)
+        # TODO: 根据TTS音频时长计算分镜张数（步骤4：分镜规划）
 
-    # 步骤6：字幕生成
+    # 步骤4-5：SDXL生图（分镜张数由配音时长决定）
+    if latest_wf and os.path.exists(latest_wf):
+        step3_generate_images(latest_wf, comfyui_running)
+    else:
+        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤4")
+
+    # 步骤6：Wan2.2生视频
+    if latest_wf and os.path.exists(latest_wf):
+        step4_generate_videos(latest_wf, comfyui_running)
+    else:
+        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤5")
+
+    # 步骤7：字幕生成
     srt_path = None
     if enable_subtitles:
         srt_path = step6_generate_subtitles(tts_results, output_dir, script_path)
 
-    # 步骤7：合成视频
+    # 步骤8：合成视频
     step7_compose_video(video_dir, output_dir, tts_results, srt_path)
 
     # 成本汇总
@@ -476,7 +482,7 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     print(f"  剧名: 《{title}》")
     print(f"  题材: {script_genre}")
     print(f"  剧本: {script_path}")
-    print(f"  分辨率: 720x1280 (9:16竖屏)")
+    print(f"  分辨率: 1080x1920 (9:16竖屏)")
     print(f"  预估制作时间: {cost_info['time']['total_readable']}")
     print(f"  预估制作成本: {cost_info['cost']['total']}")
     print(f"  本次Pipeline耗时: {elapsed:.1f}秒")
@@ -492,7 +498,7 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
 
 def parse_args():
     """解析命令行参数"""
-    parser = argparse.ArgumentParser(description="短剧制作Pipeline v4.2")
+    parser = argparse.ArgumentParser(description="短剧制作Pipeline v5.0 — 配音先行版")
     parser.add_argument("--auto", action="store_true", help="全自动模式")
     parser.add_argument("--run-comfyui", action="store_true", help="调用ComfyUI API生图生视频")
     parser.add_argument("--tts", action="store_true", help="启用TTS配音+字幕")
@@ -513,7 +519,7 @@ def main():
 
     if args.cost_estimate:
         cost_per_hour = config.COST_PER_HOUR
-        print_header(f"短剧制作成本估算 (RTX 5060 Ti 8GB, ¥{cost_per_hour}/小时)")
+        print_header(f"短剧制作成本估算 (RTX 5060 Ti, ¥{cost_per_hour}/小时)")
         print("\n| 集数 | 图片数 | 视频数 | 含TTS | 预估时间 | 预估成本 | 每集成本 |")
         print("|:----:|:------:|:------:|:-----:|----------|---------:|---------:|")
         for n in [1, 5, 10, 30, 50, 100]:
@@ -538,27 +544,28 @@ def main():
 
     # 默认：显示帮助
     print("""
-短剧制作Pipeline v4.2 - 720P竖屏 (9:16)
+短剧制作Pipeline v5.0 — 配音先行版
 用法:
-  python pipeline.py --auto                         全自动：抓热点→剧本→ComfyUI配置
+  python pipeline.py --auto                         全自动：抓热点→剧本→TTS先行
   python pipeline.py --auto --genre "霸总"          指定题材
   python pipeline.py --auto --run-comfyui           全自动+调用ComfyUI API
   python pipeline.py --auto --run-comfyui --tts     全自动+ComfyUI+TTS配音+字幕
+  python pipeline.py --from-script <剧本.md>        从已有剧本开始（跳过热点，直接配音→分镜）
   python pipeline.py --cost-estimate                查看成本估算
-完整7步流程:
+完整8步流程（配音先行）:
   1. 抓取热点 (酷乐API + 抖音热搜)
-  2. 生成剧本 (含SDXL/Wan2.2提示词+ComfyUI工作流JSON)
-  3. SDXL生图 (768x1344 → 720x1280, ~10-15秒/张)
-  4. Wan2.2生视频 (8秒/段, 832x480 → upscale 720P, ~1.5-3分钟/段)
-  5. TTS配音 (Edge TTS, zh-CN-XiaoxiaoNeural/YunxiNeural)
-  6. 字幕生成 (SRT格式，可烧录到视频)
-  7. FFmpeg合成 (拼接+配音+字幕→最终成品)
+  2. 生成剧本 (含对白/旁白+ComfyUI工作流JSON)
+  3. TTS配音先行 (先出音频，音频时长决定分镜张数和节奏)
+  4. 分镜规划 (根据音频时长计算分镜数量和停留时长)
+  5. SDXL生图 (按规划分镜张数生成，1024x1820 → 1080x1920)
+  6. Wan2.2生视频 (8秒/段，832x480 → upscale 1080P)
+  7. 字幕生成 (SRT格式，基于TTS时长精确生成时间轴)
+  8. FFmpeg合成 (拼接+配音+字幕→最终成品)
 
-v4.2 改进:
-  - 支持 Flux2-Klein-9B fp4 文生图工作流
-  - Wan2.2 视频改为8秒@16fps (129帧)
-  - 修复 comfyui_api.py 缺少 import sys
-  - 新增 fetch_hotspot.py 热点抓取模块
+v5.0 核心变化:
+  - 配音先行：先配音再出分镜，音频驱动画面节奏
+  - 分镜规划：新增步骤4，根据配音时长自动计算分镜数量和停留时长
+  - from-script 模式：跳过热点抓取，直接从剧本开始
     """)
 
 

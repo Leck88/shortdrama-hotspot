@@ -1,16 +1,18 @@
 # shortdrama-hotspot
 
-**短剧热点监控 + 仿制剧本 + ComfyUI一键生成 + TTS配音+字幕** —— 从热点发现到成品视频的完整闭环。
+**短剧热点监控 + 仿制剧本 + TTS配音先行 + ComfyUI分镜生成** —— 从热点发现到成品视频的完整闭环。
 
-> 适用于短剧创作者、选题策划、行业研究者。快速掌握短剧市场热点，一键生成AI短剧。
+> 核心流程：**先出剧本→先配音（卡准节奏）→再根据音频时长出分镜图→最后合成视频**。
+> 配音先行，分镜跟着音频走，节奏更准，画面更贴。
 
 ---
 
 ## 📦 项目概览
 
 ```
-热点监控 → 爆款拆解 → 仿制剧本 → SDXL生图 → Wan2.2生视频 → TTS配音 → 字幕合成 → 成品视频
-                     ↑ 全部本地运行 · 无需联网（热点抓取除外）
+热点监控 → 爆款拆解 → 仿制剧本 → TTS配音(先行) → 分镜图生成 → Wan2.2生视频 → 字幕/合成 → 成品视频
+                                                      ↑
+                                              配音先行，音频时长决定分镜张数和节奏
 ```
 
 ---
@@ -60,16 +62,21 @@ python fetch_hotspot.py --script
 - **ComfyUI可执行配置** —— 每场输出SDXL正向/反向提示词 + Wan2.2运动提示词 + 工作流JSON
 - **批量生成** —— 基于当日Top5热门题材，批量生成仿制剧本
 
-### 🤖 一键Pipeline（7步完整流程）
+### 🤖 一键Pipeline（8步完整流程 — 配音先行版）
 ```
 步骤1: 抓取热点（热度榜+抖音热搜）
-步骤2: 仿制剧本（SDXL提示词+Wan2.2运动提示词+ComfyUI工作流JSON）
-步骤3: SDXL生图（768x1344 → 720x1280）
-步骤4: Wan2.2 I2V（8秒视频，832x480 → upscale 720P）
-步骤5: TTS配音（Edge TTS，女主/男主自动分配语音）
-步骤6: 字幕生成（SRT格式，可烧录到视频）
-步骤7: FFmpeg合成（拼接+配音+字幕 → 成品视频）
+步骤2: 仿制剧本（含对白/旁白+ComfyUI工作流JSON）
+步骤3: TTS配音（先行！Edge TTS/CosyVoice，基于剧本生成对白+旁白）
+步骤4: 分镜规划（根据音频时长计算分镜张数和节奏）
+步骤5: SDXL生图（按规划的分镜张数生成，1024x1820 → 1080x1920）
+步骤6: Wan2.2 I2V（8秒视频，832x480 → upscale 1080P）
+步骤7: 字幕生成（SRT格式，基于TTS时长精确生成时间轴）
+步骤8: FFmpeg合成（拼接+配音+字幕 → 成品视频）
 ```
+
+> **为什么配音先行？**
+> - 传统流程：生图→生视频→配音，配音时长和画面节奏容易脱节
+> - 新流程：先配音，音频时长定了，分镜的张数和停留时长自然确定，画面和声音完美同步
 
 ### 🎙 TTS配音 + 字幕
 - **Edge TTS配音** —— 自动从剧本提取对话，按角色分配男女声
@@ -85,7 +92,7 @@ python fetch_hotspot.py --script
 
 | 组件 | 规格 | 说明 |
 |------|------|------|
-| **GPU** | **RTX 5060 Ti 8GB** | 8GB显存可跑SDXL+Wan2.2 5B FP16（720P输出） |
+| **GPU** | **RTX 5060 Ti 16GB** | 16GB显存可跑SDXL+Wan2.2（需FP8/GUF量化） |
 | **内存** | 32GB DDR5 5600MHz | 充足，满足ComfyUI+模型加载 |
 | **硬盘** | ≥100GB 空闲 | 模型文件约占50-80GB |
 | **系统** | Windows 10/11 或 Linux | ComfyUI跨平台支持 |
@@ -93,12 +100,11 @@ python fetch_hotspot.py --script
 
 ### 对比：本地 vs 云算力
 
-| 维度 | 本地 5060Ti 8GB | 云算力 AutoDL |
+| 维度 | 本地 5060Ti | 云算力 AutoDL |
 |------|-----------|--------------|
-| **单集成本** | 电费≈¥0.1 | ≈¥1.2 |
-| **速度** | 略慢（Wan2.2 5B FP16） | 快（14B FP16） |
+| **单集成本** | 电费≈¥0.3 | ≈¥1.95 |
+| **速度** | 略慢（FP8量化） | 快（FP16） |
 | **灵活性** | 随时可用 | 需开机排队 |
-| **显存** | 8GB（720P） | 24GB（1080P） |
 | **隐私** | 数据本地 | 数据上传云端 |
 | **长期** | 一次投入长期免费 | 持续付费 |
 
@@ -123,12 +129,11 @@ pip install -r requirements.txt
 |------|---------|---------|------|------|
 | **SDXL 1.0 base** | [HuggingFace](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) | `ComfyUI/models/checkpoints/` | ≈7GB | 文生图底模 |
 | **SDXL refiner** | [HuggingFace](https://huggingface.co/stabilityai/stable-diffusion-xl-refiner-1.0) | `ComfyUI/models/checkpoints/` | ≈7GB | 可选精炼 |
-| **Wan2.2 I2V-14B FP8** | [HuggingFace](https://huggingface.co/Kijai/Wan2.1-I2V-14B-fp8-e4m3fn) | `ComfyUI/models/checkpoints/` | ≈14GB | **14B模型，需24GB显存** |
-| **Wan2.2 I2V-5B FP16** | [HuggingFace](https://huggingface.co/Kijai/Wan2.1-I2V-14B-fp8-e4m3fn) | `ComfyUI/models/diffusion_models/` | ≈10GB | **8GB显存推荐（720P）** |
-| **Wan2.2 VAE** | [HuggingFace](https://huggingface.co/Kijai/Wan2.1-VAE) | `ComfyUI/models/vae/` | ≈0.5GB | Wan2.2 VAE |
+| **Wan2.2 I2V-14B FP8** | [HuggingFace](https://huggingface.co/Kijai/Wan2.1-I2V-14B-fp8-e4m3fn) | `ComfyUI/models/checkpoints/` | ≈14GB | **16GB显存必选FP8版** |
+| **CLIP-ViT-bigG** | [HuggingFace](https://huggingface.co/openai/clip-vit-large-patch14) | `ComfyUI/models/clip/` | ≈2GB | Wan2.2所需 |
 | **T5-xxl** | [HuggingFace](https://huggingface.co/google/t5-v1_1-xxl) | `ComfyUI/models/clip/` | ≈11GB | Wan2.2所需 |
 
-> **💡 8GB显存优化建议**：使用Wan2.2 5B FP16模型 + SDXL fp16，输出720P竖屏视频。如需1080P高质量，使用SeetaCloud 24GB云端实例。
+> **💡 16GB显存优化建议**：Wan2.2必须使用FP8/GUF量化版，SDXL使用fp16即可。可运行 `python scripts/download_models.py`（见下方说明）。
 
 #### 3. 安装 ComfyUI 自定义节点
 
@@ -205,20 +210,20 @@ python fetch_hotspot.py --script --batch           # 批量生成5个
 ### 一键Pipeline
 
 ```bash
-# 仅热点+剧本（不需要ComfyUI）
+# 仅热点+剧本（TTS先行模式）
 python pipeline.py --auto
 
 # 指定题材
 python pipeline.py --auto --genre "婚恋"
 
-# 完整流程：热点→剧本→生图→生视频
+# 完整流程：热点→剧本→TTS配音先行→生图→生视频
 python pipeline.py --auto --run-comfyui
 
-# 全套：+TTS配音+字幕
+# 全套：打开TTS（配音先行）+字幕+合成
 python pipeline.py --auto --run-comfyui --tts
 
-# 查看成本估算
-python pipeline.py --cost-estimate
+# 从已有剧本开始（跳过热点抓取，直接配音→分镜→合成）
+python pipeline.py --from-script <剧本.md> --run-comfyui
 ```
 
 ### TTS配音（独立使用）
@@ -272,31 +277,27 @@ python pipeline.py --auto --run-comfyui
 
 | 文件 | 功能 | 适用场景 |
 |------|------|---------|
-| `workflows/sdxl_1080p_portrait.json` | SDXL竖屏文生图 | 生成分镜图（resize到720x1280） |
-| `workflows/wan22_i2v_720p_8s_8B.json` | Wan2.2 I2V 8秒720P | 将分镜图转为720P竖屏8秒视频 |
-| `workflows/wan22_5B_ti2v_720p.json` | Wan2.2 5B文生视频 | 8GB显存推荐，~2分钟/段 |
-| `workflows/sdxl_wan22_combined.json` | 组合工作流 | 一步文生视频（1080P版本） |
-| `workflows/wan22_i2v_1080p_8s.json` | Wan2.2 I2V 1080P | 8B/14B模型大显存用 |
-| `workflows/Flux2-Klein-9B-文生图-fp4版_1080p.json` | Flux模型替代方案 | 16GB+显存优化版 |
+| `workflows/sdxl_1080p_portrait.json` | SDXL竖屏文生图 | 生成1080x1920分镜图 |
+| `workflows/wan22_i2v_1080p_8s.json` | Wan2.2图生视频 | 将分镜图转为8秒视频 |
+| `workflows/sdxl_wan22_combined.json` | 组合工作流 | 一步文生视频 |
+| `workflows/Flux2-Klein-9B-文生图-fp4版_1080p.json` | Flux模型替代方案 | 16GB显存优化版 |
+| `workflows/Wan2.2-14B文生视频-4步_8s.json` | Wan2.2文生视频 | 4步推理，更快 |
 
 ### 工作流说明
-- `sdxl_1080p_portrait.json` — 使用内置`ImageScale`节点，生成后resize到目标分辨率（默认720x1280）
-- `wan22_i2v_720p_8s_8B.json` — Wan2.2 I2V 8秒720P视频，8B模型
-- `wan22_5B_ti2v_720p.json` — **8GB显存推荐**，Wan2.2 5B FP16直接文生视频（720P）
-- `sdxl_wan22_combined.json` — 组合工作流，一步从文字生成视频（1080P高配）
+- `sdxl_1080p_portrait.json` — 使用内置`ImageScale`节点，生成1024x1820后resize到1080x1920
+- `wan22_i2v_1080p_8s.json` — Wan2.2 I2V 8秒视频，LoadImage加载SDXL输出的分镜图
+- `sdxl_wan22_combined.json` — 组合工作流，一步从文字生成视频
 
-### 8GB显存优化工作流
+### 16GB显存优化工作流
 
 | 优化项 | 说明 |
 |--------|------|
-| **SDXL步骤** | 保持30步，cfg 7.0（8GB无压力） |
-| **Wan2.2模型** | 使用5B FP16版（非14B），显存占用约7GB |
-| **输出分辨率** | 720P（720x1280），8GB显存稳定运行 |
-| **Wan2.2时长** | 8秒@16fps，约1.5-3分钟/段 |
+| **SDXL步骤** | 从30步降至20步，cfg从7.0降至6.0 |
+| **Wan2.2分辨率** | 从832x480降至640x480，显存占用减少40% |
+| **Wan2.2步数** | 从默认降至4步，速度提升5倍 |
+| **FP8量化** | 使用Wan2.2 FP8版模型，显存减半 |
 | **Batch size** | 始终为1，避免显存溢出 |
 | **TeaCache** | 开启缓存加速（ComfyUI-WanVideoWrapper支持） |
-
-> **云算力补充**：当需要1080P高质量输出时，使用SeetaCloud 24GB云端实例，切换至14B FP16模型。
 
 ---
 
@@ -314,22 +315,22 @@ python pipeline.py --auto --run-comfyui
 
 ## 📊 Pipeline参数与性能
 
-### 本地 5060Ti (8GB) 性能参考
+### 本地 5060Ti (16GB) 性能参考
 
 | 步骤 | 工具 | 分辨率 | 单次耗时 |
 |------|------|--------|---------|
-| 分镜图 | SDXL | 768x1344 → 720x1280 | 12-18秒 |
-| 8秒视频 | Wan2.2 5B FP16 | 832x480 → 720x1280 | 1.5-3分钟 |
+| 分镜图 | SDXL | 1024x1820 | 12-18秒 |
+| 8秒视频 | Wan2.2 I2V (FP8, 4步) | 640x480 | 4-6分钟 |
 | TTS配音 | Edge TTS | - | 1-3秒/句 |
-| 合成 | FFmpeg | 720x1280 | 1-2分钟 |
+| 合成 | FFmpeg | 1080x1920 | 2分钟 |
 
 ### 一集成本估算（本地）
 
 | 项目 | 成本 |
 |------|------|
-| 电费（~150W × 10分钟） | ≈¥0.05 |
+| 电费（~200W × 15分钟） | ≈¥0.08 |
 | 模型摊销 | ≈¥0.02 |
-| **单集约合** | **≈¥0.07** |
+| **单集约合** | **≈¥0.10** |
 
 ---
 
@@ -355,12 +356,10 @@ shortdrama-hotspot/
 │   ├── genre_templates.json   # 10种题材剧本模板
 │   └── comfyui_pipeline_config.json  # Pipeline参数配置
 ├── workflows/
-│   ├── sdxl_1080p_portrait.json       # SDXL竖屏分镜（resize到720x1280）
-│   ├── wan22_i2v_720p_8s_8B.json      # Wan2.2 I2V 720P 8秒（8B模型）
-│   ├── wan22_5B_ti2v_720p.json        # Wan2.2 5B T2V 720P（8GB推荐）
+│   ├── sdxl_1080p_portrait.json       # SDXL 1080P竖屏分镜
+│   ├── wan22_i2v_1080p_8s.json        # Wan2.2 I2V 8秒视频
 │   ├── sdxl_wan22_combined.json       # SDXL+Wan2.2组合工作流
-│   ├── wan22_i2v_1080p_8s.json        # Wan2.2 I2V 1080P（高配用）
-│   ├── wan22_i2v_720p_8s_GGUF.json    # Wan2.2 I2V 720P GGUF量化版
+│   ├── Flux2-Klein-9B-文生图-fp4版_1080p.json  # Flux模型替代
 │   └── Wan2.2-14B文生视频-4步_8s.json  # 4步快速版
 └── tests/
     ├── __init__.py
@@ -408,13 +407,8 @@ shortdrama-hotspot/
 
 ## ❓ 常见问题
 
-### Q: 8GB显存够跑Wan2.2吗？
-**可以**。建议使用Wan2.2 5B FP16模型（非14B），输出720P分辨率。已验证：5B FP16在8GB显存下约2分钟生成一段720P竖屏8秒视频。
-
-### Q: 本地8GB vs 云端24GB怎么选？
-- **日常快速验证** → 本地8GB（Wan 5B 720P，约2分钟/段）
-- **1080P高质量输出** → SeetaCloud 24GB（Wan 14B 1080P，更快+更高清）
-- 本地流水线已验证兼容，切换只需改COMFYUI_API_URL环境变量
+### Q: 16GB显存够跑Wan2.2吗？
+**可以**。必须使用FP8量化版Wan2.2 I2V模型（~14GB），开启 `--lowvram` 模式。分辨率从832x480降至640x480可节省40%显存。
 
 ### Q: 热点API不稳定怎么办？
 项目内置了重试机制（默认3次，指数退避）和磁盘缓存（默认60分钟过期）。同一小时内重复请求直接读取缓存。
@@ -445,10 +439,9 @@ ffmpeg -version
 ## ⚠️ 注意事项
 
 - 短剧热度榜API为免费第三方接口，可能偶尔不稳定
-- SDXL 768x1344接近9:16竖屏比例，经resize到720x1280输出
-- Wan2.2 I2V在480P(832x480)下生成，输出后upscale到720P
-- **8GB显存推荐使用Wan2.2 5B FP16**，14B需要24GB+
-- 需要1080P高质量时，切换SeetaCloud 24GB云端实例（改COMFYUI_API_URL即可）
+- SDXL 1024x1820接近SDXL原生训练比例，出图质量最佳
+- Wan2.2 I2V-14B模型在480P(832x480)下生成，输出需upscale到1080P
+- **16GB显存必须使用Wan2.2 FP8量化版**，FP16版需要24GB+
 - 剧本生成基于模板+随机组合，建议人工审核调整
 - TTS配音需安装edge-tts：`pip install edge-tts`
 - FFmpeg需在系统PATH中可用
@@ -462,15 +455,6 @@ MIT
 ---
 
 ## 📝 更新日志
-
-### v4.3 (2026-05-26)
-- **默认分辨率从1080P改为720P竖屏**：适配本地8GB显存硬件（RTX 5060 Ti 8GB）
-- **SDXL生成分辨率调整**：从1024x1820→1080x1920 改为 768x1344→720x1280
-- **Wan2.2默认工作流**：引用 720P 工作流（wan22_i2v_720p_8s_8B.json）
-- **性能估算更新**：时间从45-75分钟降至22-45分钟（720P @ 5B FP16），成本约0.9-1.2元/集
-- **硬件文档更新**：推荐配置改为 RTX 5060 Ti 8GB + 32GB RAM
-- **新增本地+云端协同说明**：本地720P快速验证，云端1080P高质量输出
-- **README全面更新**：工作流表格、性能参考、FAQ、注意事项
 
 ### v4.2 (2026-05-25)
 - **新增本地硬件部署指南**：RTX 5060 Ti 16GB + 32GB RAM 详细配置
