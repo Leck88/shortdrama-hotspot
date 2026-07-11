@@ -60,9 +60,10 @@ class Config:
     )
 
     # ============ 成本参数 ============
-    COST_PER_HOUR = float(os.environ.get("SHORTDRAMA_COST_PER_HOUR", "1.8"))
-    SDXL_TIME_PER_IMAGE_S = 10
-    WAN22_TIME_PER_VIDEO_S = 240
+    # 云GPU RTX 4090 租赁价格（元/小时），AutoDL/极智算参考价
+    COST_PER_HOUR = float(os.environ.get("SHORTDRAMA_COST_PER_HOUR", "6.0"))
+    # 文生图由用户本地/外置搞定，此处不计入成本
+    WAN22_TIME_PER_VIDEO_S = 270  # 5秒视频 @ RTX 4090 FP16 约 3-6 分钟
     FFMPEG_TIME_S = 120
     TTS_TIME_S = 30
 

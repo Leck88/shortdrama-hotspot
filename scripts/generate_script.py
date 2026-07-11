@@ -380,7 +380,7 @@ def generate_wan22_motion_prompt(genre, scene_index):
 # ============ 分场剧本生成 ============
 
 def generate_scenes(genre, templates):
-    """基于题材模板生成分场剧本（含ComfyUI配置）"""
+    """基于题材模板生成分场剧本（含ComfyUI I2V配置）"""
     template = templates.get(genre, templates.get("婚恋", {}))
     structure = template.get("structure", {})
     characters = template.get("characters", {})
@@ -408,29 +408,28 @@ def generate_scenes(genre, templates):
     opening_hooks = hooks.get("开场钩子", ["震撼场面"])
     ending_hooks = hooks.get("结尾悬念", ["新悬念"])
     
-    # 5场结构定义
+    # 5场结构定义（每段视频固定5秒，多场拼接成15秒+）
     scene_templates = [
-        {"name": "开场钩子", "duration": "0-3秒", "structure_key": "钩子开场",
-         "sdxl_composition": "extreme close-up, dramatic reveal, shock expression",
-         "video_duration_s": 3, "frames": 24},
-        {"name": "矛盾建立", "duration": "3-30秒", "structure_key": "矛盾建立",
-         "sdxl_composition": "medium shot, confrontation, dialogue scene",
-         "video_duration_s": 27, "frames": 216},
-        {"name": "冲突升级", "duration": "30-90秒", "structure_key": "冲突升级",
-         "sdxl_composition": "medium-long shot, intense conflict, multiple angles",
-         "video_duration_s": 60, "frames": 480},
-        {"name": "高潮反转", "duration": "90-135秒", "structure_key": "高潮反转",
-         "sdxl_composition": "wide reveal shot, crowd reaction, dramatic lighting",
-         "video_duration_s": 45, "frames": 360},
-        {"name": "钩子结尾", "duration": "135-150秒", "structure_key": "钩子结尾",
-         "sdxl_composition": "close-up, mysterious expression, cliffhanger",
-         "video_duration_s": 15, "frames": 120},
+        {"name": "开场钩子", "duration": "0-5秒", "structure_key": "钩子开场",
+         "shot_type": "extreme close-up, dramatic reveal, shock expression",
+         "video_duration_s": 5, "frames": 81},
+        {"name": "矛盾建立", "duration": "5-10秒", "structure_key": "矛盾建立",
+         "shot_type": "medium shot, confrontation, dialogue scene",
+         "video_duration_s": 5, "frames": 81},
+        {"name": "冲突升级", "duration": "10-15秒", "structure_key": "冲突升级",
+         "shot_type": "medium-long shot, intense conflict, multiple angles",
+         "video_duration_s": 5, "frames": 81},
+        {"name": "高潮反转", "duration": "15-20秒", "structure_key": "高潮反转",
+         "shot_type": "wide reveal shot, crowd reaction, dramatic lighting",
+         "video_duration_s": 5, "frames": 81},
+        {"name": "钩子结尾", "duration": "20-25秒", "structure_key": "钩子结尾",
+         "shot_type": "close-up, mysterious expression, cliffhanger",
+         "video_duration_s": 5, "frames": 81},
     ]
     
     scenes = []
     for i, scene_tpl in enumerate(scene_templates, 1):
         scene_idx = i
-        sdxl_prompt = generate_sdxl_prompt(genre, scene_idx, scene_tpl["name"], female_name, male_name)
         wan22_motion = generate_wan22_motion_prompt(genre, scene_idx)
         
         scene = {
@@ -440,42 +439,40 @@ def generate_scenes(genre, templates):
             "duration_seconds": scene_tpl["video_duration_s"],
             "structure_desc": structure.get(scene_tpl["structure_key"], ""),
             
-            # === ComfyUI 可执行配置 ===
+            # === ComfyUI I2V 可执行配置 ===
             "comfyui": {
-                # SDXL图生图配置
-                "sdxl": {
-                    "prompt": sdxl_prompt,
-                    "negative_prompt": SDXL_NEGATIVE_PROMPT,
-                    "width": 768,
-                    "height": 1344,
-                    "final_resize": {"width": 720, "height": 1280},
-                    "cfg_scale": 7.0,
-                    "steps": 30,
-                    "sampler": "euler_ancestral",
-                    "scheduler": "normal",
-                    "checkpoint": "sd_xl_base_1.0.safetensors",
+                # 分镜图要求（文生图外置，由用户自行准备）
+                "image_requirements": {
+                    "resolution": "768x1344 或更高",
+                    "aspect_ratio": "9:16 竖屏",
+                    "format": "PNG/JPG",
+                    "placement": "放入 ComfyUI input/ 目录",
+                    "note": "文生图由你自行搞定，建议用你熟悉的工具生成",
                 },
-                # Wan2.2 图生视频配置
+                # Wan2.2 图生视频配置（5秒/段，4090 FP16直出）
                 "wan22_i2v": {
                     "motion_prompt": wan22_motion,
                     "negative_prompt": WAN22_NEGATIVE_PROMPT,
                     "input_resolution": "832x480",
-                    "output_target": "720x1280",
-                    "frames": 64,
-                    "fps": 8,
-                    "video_duration": "8秒",
-                    "cfg_scale": 7.0,
+                    "output_target": "720x1280 或 upscale 1080P",
+                    "frames": 81,
+                    "fps": 16,
+                    "video_duration": "5秒",
+                    "cfg_scale": 6.5,
                     "steps": 30,
                     "sampler": "uni_pc_bh2",
-                    "motion_strength": 0.8,
-                    "model": "Wan2.1-I2V-14B-480P.safetensors",
+                    # 关键：低运动幅度提高稳定性
+                    "motion_strength": 0.4,
+                    "model": "Wan2.2-I2V-14B-480P.safetensors (FP16)",
+                    # 抽卡策略
+                    "batch_generate": 3,
+                    "selection": "人工/脚本筛选最优",
                 },
-                # 时间和成本估算（RTX 5060 Ti 8GB, 1.8元/小时）
+                # 时间和成本估算（云GPU RTX 4090 24GB, ~6元/小时）
                 "time_cost": {
-                    "sdxl_time_s": "10-15秒",
-                    "wan22_time_s": "90-180秒",
-                    "total_time_s": "100-195秒",
-                    "cost_yuan": "0.05-0.10元",
+                    "wan22_time_s": "180-360秒（5秒/段，含抽卡3条）",
+                    "total_time_s": "180-360秒",
+                    "cost_yuan": "0.3-0.6元",
                 }
             }
         }
@@ -502,20 +499,20 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     now = datetime.now()
     lines = []
     
-    lines.append(f"# 《{title}》- 短剧剧本（ComfyUI可执行版）\n")
+    lines.append(f"# 《{title}》- 短剧剧本（ComfyUI I2V可执行版）\n")
     lines.append(f"> 生成时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"> 分辨率: 720x1280 (9:16竖屏)")
-    lines.append(f"> 硬件环境: RTX 5060 Ti 8GB RAM")
-    lines.append(f"> Pipeline: SDXL文生图 → Wan2.2 I2V 8秒视频 → FFmpeg合成\n")
+    lines.append(f"> 分辨率: 输入图 → Wan2.2 832x480 → 可选 upscale 1080P")
+    lines.append(f"> 硬件环境: 云GPU RTX 4090 24GB（AutoDL/极智算租赁）")
+    lines.append(f"> Pipeline: 自备分镜图 → Wan2.2 I2V 5秒/段 → 尾帧续写 → 交叉淡化拼接 → FFmpeg合成\n")
     
     # 基本信息
     lines.append("## 基本信息\n")
     lines.append(f"- **剧名**: 《{title}》")
     lines.append(f"- **题材**: {genre}")
-    lines.append(f"- **时长**: 约2分钟（150秒）")
-    lines.append(f"- **分辨率**: 720x1280 竖屏 (9:16)")
+    lines.append(f"- **时长**: 约15-25秒（5场 × 5秒/段，拼接后）")
+    lines.append(f"- **分辨率**: 输入图建议 768x1344+ → Wan2.2 832x480 → 可选 upscale 1080P")
     lines.append(f"- **总场数**: 5场")
-    lines.append(f"- **总视频段数**: 约15段（每场3机位）")
+    lines.append(f"- **总视频段数**: 5段（每段5秒），可拼接为15-25秒成片")
     if ref_title:
         lines.append(f"- **参考剧目**: 《{ref_title}》")
     if rank_info:
@@ -525,24 +522,27 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     # 制作流程
     lines.append("## 制作流程\n")
     lines.append("```")
-    lines.append("步骤1: SDXL生成分镜图 (768x1344 → resize 720x1280)")
-    lines.append("  ↓  每张约10-15秒, 15张约2-3分钟")
-    lines.append("步骤2: Wan2.2 I2V生8秒视频 (832x480输入, 输出upscale到720P)")
-    lines.append("  ↓  每段约1.5-3分钟, 15段约22-45分钟")
-    lines.append("步骤3: FFmpeg拼接+字幕+配音")
+    lines.append("步骤1: 你自行准备分镜图 (768x1344+ 竖屏 PNG/JPG)")
+    lines.append("  ↓  放入 ComfyUI input/ 目录")
+    lines.append("步骤2: Wan2.2 I2V 生5秒视频 (832x480输入, FP16直出)")
+    lines.append("  ↓  每段抽卡3-5条，筛选最优，约3-6分钟/段")
+    lines.append("步骤3: 尾帧续写 → 下一段5秒（使用 WanVideoStartEndFrames）")
+    lines.append("  ↓  交叉淡化重叠0.5秒，保证衔接自然")
+    lines.append("步骤4: FFmpeg拼接+字幕+配音")
     lines.append("  ↓  约2分钟")
-    lines.append("成品: 2分钟720P竖屏短剧")
+    lines.append("成品: 15-25秒竖屏短剧（可扩展为更长）")
     lines.append("```\n")
     
     # 成本估算
-    lines.append("## 成本估算（RTX 5060 Ti 8GB, 1.8元/小时）\n")
+    lines.append("## 成本估算（云GPU RTX 4090, ~6元/小时）\n")
     lines.append("| 步骤 | 数量 | 单次耗时 | 单次成本 | 总耗时 | 总成本 |")
     lines.append("|------|:----:|---------|---------|--------|-------:|")
-    lines.append("| SDXL分镜图 | 15张 | 10-15秒 | ~0.005元 | 2-3分钟 | 0.075元 |")
-    lines.append("| Wan2.2视频 | 15段 | 1.5-3分钟 | ~0.075元 | 22-45分钟 | 0.75-1.1元 |")
-    lines.append("| FFmpeg合成 | 1次 | 2分钟 | ~0.06元 | 2分钟 | 0.06元 |")
-    lines.append("| **合计** | - | - | - | **30-50分钟** | **约0.9-1.2元** |")
+    lines.append("| 分镜图 | 5张 | 外置 | 外置 | 外置 | 外置 |")
+    lines.append("| Wan2.2视频 | 5段 | 3-6分钟 | ~0.3-0.6元 | 15-30分钟 | 1.5-3.0元 |")
+    lines.append("| FFmpeg合成 | 1次 | 2分钟 | ~0.2元 | 2分钟 | 0.2元 |")
+    lines.append("| **合计** | - | - | - | **20-35分钟** | **约1.7-3.2元** |")
     lines.append("")
+    lines.append("> 💡 实际成本取决于抽卡次数。每段生成3条筛选，成本×3。仍比闭源方案便宜10倍。\n")
     
     # 一句话梗概
     synopsis = generate_synopsis(genre, templates, title, ref_title)
@@ -606,30 +606,22 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
         # ComfyUI配置区块
         comfyui = scene.get("comfyui", {})
         if comfyui:
-            lines.append(f"#### 🎬 ComfyUI配置 - 第{i}场\n")
+            lines.append(f"#### 🎬 ComfyUI I2V配置 - 第{i}场\n")
             
-            # SDXL配置
-            sdxl = comfyui.get("sdxl", {})
-            lines.append(f"**SDXL文生图** (生成分镜底图)\n")
+            # 分镜图要求
+            img_req = comfyui.get("image_requirements", {})
+            lines.append(f"**分镜图要求**（文生图外置，你自行准备）\n")
             lines.append(f"```")
-            lines.append(f"正向提示词:")
-            lines.append(f"  {sdxl.get('prompt', '')}")
-            lines.append(f"")
-            lines.append(f"反向提示词:")
-            lines.append(f"  {sdxl.get('negative_prompt', '')}")
-            lines.append(f"")
-            lines.append(f"参数配置:")
-            lines.append(f"  分辨率: {sdxl.get('width', 768)}x{sdxl.get('height', 1344)} → resize到 {sdxl.get('final_resize', {}).get('width', 720)}x{sdxl.get('final_resize', {}).get('height', 1280)}")
-            lines.append(f"  CFG Scale: {sdxl.get('cfg_scale', 7.0)}")
-            lines.append(f"  Steps: {sdxl.get('steps', 30)}")
-            lines.append(f"  Sampler: {sdxl.get('sampler', 'euler_ancestral')}")
-            lines.append(f"  Checkpoint: {sdxl.get('checkpoint', 'sd_xl_base_1.0.safetensors')}")
-            lines.append(f"  耗时: ~10-15秒/张 (5060 Ti 8GB)")
+            lines.append(f"分辨率: {img_req.get('resolution', '768x1344+')}")
+            lines.append(f"比例: {img_req.get('aspect_ratio', '9:16 竖屏')}")
+            lines.append(f"格式: {img_req.get('format', 'PNG/JPG')}")
+            lines.append(f"放置: {img_req.get('placement', 'ComfyUI input/ 目录')}")
+            lines.append(f"备注: {img_req.get('note', '文生图由你自行搞定')}")
             lines.append(f"```\n")
             
             # Wan2.2配置
             wan22 = comfyui.get("wan22_i2v", {})
-            lines.append(f"**Wan2.2 图生视频** (8秒竖屏视频)\n")
+            lines.append(f"**Wan2.2 图生视频** (5秒/段，4090 FP16直出)\n")
             lines.append(f"```")
             lines.append(f"运动提示词:")
             lines.append(f"  {wan22.get('motion_prompt', '')}")
@@ -640,20 +632,21 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
             lines.append(f"参数配置:")
             lines.append(f"  输入图尺寸: {wan22.get('input_resolution', '832x480')}")
             lines.append(f"  输出目标: {wan22.get('output_target', '720x1280')}")
-            lines.append(f"  帧数: {wan22.get('frames', 64)} 帧")
-            lines.append(f"  FPS: {wan22.get('fps', 8)}")
-            lines.append(f"  时长: {wan22.get('video_duration', '8秒')}")
-            lines.append(f"  CFG Scale: {wan22.get('cfg_scale', 7.0)}")
+            lines.append(f"  帧数: {wan22.get('frames', 81)} 帧")
+            lines.append(f"  FPS: {wan22.get('fps', 16)}")
+            lines.append(f"  时长: {wan22.get('video_duration', '5秒')}")
+            lines.append(f"  CFG Scale: {wan22.get('cfg_scale', 6.5)}")
             lines.append(f"  Steps: {wan22.get('steps', 30)}")
             lines.append(f"  Sampler: {wan22.get('sampler', 'uni_pc_bh2')}")
-            lines.append(f"  Motion Strength: {wan22.get('motion_strength', 0.8)}")
-            lines.append(f"  Model: {wan22.get('model', 'Wan2.1-I2V-14B-480P.safetensors')}")
-            lines.append(f"  耗时: ~1.5-3分钟/段 (5060 Ti 8GB)")
+            lines.append(f"  Motion Strength: {wan22.get('motion_strength', 0.4)} (低幅度=高稳定性)")
+            lines.append(f"  Model: {wan22.get('model', 'Wan2.2-I2V-14B-480P FP16')}")
+            lines.append(f"  抽卡: 每段生成 {wan22.get('batch_generate', 3)} 条，筛选最优")
+            lines.append(f"  耗时: ~3-6分钟/段 (4090 FP16直出)")
             lines.append(f"```\n")
             
             # 时间成本
             tc = comfyui.get("time_cost", {})
-            lines.append(f"⏱ 本场耗时: SDXL {tc.get('sdxl_time_s', '')} + Wan2.2 {tc.get('wan22_time_s', '')} = **{tc.get('total_time_s', '')}**")
+            lines.append(f"⏱ 本场耗时: Wan2.2 {tc.get('wan22_time_s', '')} = **{tc.get('total_time_s', '')}**")
             lines.append(f"💰 本场成本: **{tc.get('cost_yuan', '')}**\n")
     
     # 钩子设计
@@ -662,65 +655,70 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     lines.append(f"- **结尾悬念**: {scene_data['ending_hook']}（引导追更下一集）")
     lines.append("")
     
-    # 拍摄提示
+    # 拍摄/AI生成提示
     lines.append("## 拍摄/AI生成提示\n")
-    lines.append("- 分辨率: **720x1280 (9:16竖屏)**")
-    lines.append("- SDXL生图: 768x1344 → resize到720x1280")
-    lines.append("- Wan2.2视频: 832x480输入 → 输出upscale到720x1280")
-    lines.append("- 每场3个机位（近景/中景/远景），共15段视频")
-    lines.append("- 对白精简，每句不超过15字")
-    lines.append("- 开头3秒和结尾12秒为关键留存点，务必精彩")
-    lines.append("- 情绪转折点配合音乐切换")
+    lines.append("- 分辨率: **输入图 768x1344+ (9:16竖屏) → Wan2.2 832x480 → 可选 upscale 1080P**")
+    lines.append("- 每段视频固定 **5秒**，低运动幅度（motion_strength=0.4）提高稳定性")
+    lines.append("- 长视频策略: 5秒+5秒+5秒，尾帧续写，交叉淡化拼接")
+    lines.append("- 每场1个分镜图对应1段5秒视频，5场可拼接为15-25秒成片")
+    lines.append("- 每段生成3-5条，筛选最优，避免崩脸/变形")
+    lines.append("- 提示词只描述单一简单动作，避免复合动作（如'转头+微笑+抬手'）")
+    lines.append("- 开头5秒和结尾5秒为关键留存点，务必精彩")
     lines.append("")
     
     # ComfyUI工作流引用
     lines.append("## ComfyUI工作流文件\n")
     lines.append("| 工作流 | 文件 | 用途 |")
     lines.append("|--------|------|------|")
-    lines.append("| SDXL竖屏分镜 | `workflows/sdxl_1080p_portrait.json` | 生成720P竖屏分镜图（resize到720x1280） |")
-    lines.append("| Wan2.2 I2V | `workflows/wan22_i2v_720p_8s_8B.json` | 图生8秒720P视频 |")
+    lines.append("| Wan2.2 I2V 5秒 | `workflows/wan22_i2v_1080p_8s.json` | 图生5秒视频（改frames=81, fps=16） |")
+    lines.append("| Wan2.2 首尾帧续写 | `workflows/wan22_i2v_startend.json` | 尾帧接力生成下一段 |")
     lines.append("")
-    lines.append("> 💡 将workflow JSON导入ComfyUI，替换提示词节点中的`{{POSITIVE_PROMPT}}`和`{{MOTION_PROMPT}}`即可执行\n")
+    lines.append("> 💡 将workflow JSON导入ComfyUI，在LoadImage节点选择你的分镜图，替换Motion Prompt即可执行\n")
+    lines.append("> 💡 如需更长视频：段1(5s) → 提取尾帧 → 段2(5s) → 提取尾帧 → 段3(5s) → 交叉淡化拼接\n")
     
     return "\n".join(lines)
 
 
 def generate_comfyui_workflow_json(title, genre, scene_data):
-    """
-    为每场生成可直接导入ComfyUI执行的workflow JSON
+    """生成ComfyUI工作流JSON（Wan2.2 I2V 5秒/段）"""
     
-    返回：
-        字典 {scene_id: workflow_json_string}
-    """
+    # 简化的workflow模板 - 实际使用时需要在ComfyUI中加载完整workflow并替换提示词节点
+    # 这里生成的是说明性JSON，实际执行需要配合ComfyUI的完整workflow文件
+    
     workflows = {}
     
     for scene in scene_data["scenes"]:
-        scene_id = scene["scene_id"]
+        i = scene["scene_id"]
         comfyui = scene.get("comfyui", {})
-        sdxl = comfyui.get("sdxl", {})
         wan22 = comfyui.get("wan22_i2v", {})
         
-        # 生成SDXL工作流
-        sdxl_wf_path = os.path.join(WORKFLOW_DIR, "sdxl_1080p_portrait.json")
-        if os.path.exists(sdxl_wf_path):
-            with open(sdxl_wf_path, "r", encoding="utf-8") as f:
-                sdxl_wf = f.read()
-            # 替换模板变量
-            sdxl_wf = sdxl_wf.replace("{{POSITIVE_PROMPT}}", sdxl.get("prompt", ""))
-            sdxl_wf = sdxl_wf.replace("{SCENE_ID}", f"{scene_id:02d}")
+        # Wan2.2 I2V工作流（5秒/段，图生视频）
+        wan22_workflow = {
+            "workflow_name": f"scene_{i:02d}_wan22_i2v",
+            "description": f"第{i}场-{scene.get('name', '')}-Wan2.2 I2V 5秒视频生成",
+            "genre": genre,
+            "scene_id": i,
+            "motion_prompt": wan22.get("motion_prompt", ""),
+            "negative_prompt": wan22.get("negative_prompt", ""),
+            "input_resolution": wan22.get("input_resolution", "832x480"),
+            "output_target": wan22.get("output_target", "720x1280"),
+            "frames": wan22.get("frames", 81),
+            "fps": wan22.get("fps", 16),
+            "video_duration": wan22.get("video_duration", "5秒"),
+            "cfg_scale": wan22.get("cfg_scale", 6.5),
+            "steps": wan22.get("steps", 30),
+            "sampler": wan22.get("sampler", "uni_pc_bh2"),
+            "motion_strength": wan22.get("motion_strength", 0.4),
+            "model": wan22.get("model", "Wan2.2-I2V-14B-480P.safetensors"),
+            "batch_generate": wan22.get("batch_generate", 3),
+            "load_image_node": f"scene_{i:02d}_input_image",
+            "seed": -1,
+            "note": "低运动幅度(0.4)提高稳定性，每段抽卡3条筛选最优",
+        }
         
-        # 生成Wan2.2工作流
-        wan22_wf_path = os.path.join(WORKFLOW_DIR, "wan22_i2v_720p_8s_8B.json")
-        if os.path.exists(wan22_wf_path):
-            with open(wan22_wf_path, "r", encoding="utf-8") as f:
-                wan22_wf = f.read()
-            wan22_wf = wan22_wf.replace("{{MOTION_PROMPT}}", wan22.get("motion_prompt", ""))
-            wan22_wf = wan22_wf.replace("{SCENE_ID}", f"{scene_id:02d}")
-        
-        workflows[scene_id] = {
-            "scene_name": scene["name"],
-            "sdxl_workflow": json.loads(sdxl_wf) if os.path.exists(sdxl_wf_path) else None,
-            "wan22_workflow": json.loads(wan22_wf) if os.path.exists(wan22_wf_path) else None,
+        workflows[i] = {
+            "scene_name": scene.get("name", ""),
+            "wan22_workflow": wan22_workflow,
         }
     
     return workflows
@@ -794,13 +792,7 @@ def generate_script(rank_data, genre=None, ref_title=None, templates=None, outpu
         wf_dir.mkdir(parents=True, exist_ok=True)
         
         for scene_id, wf_data in workflows.items():
-            # 保存SDXL工作流
-            if wf_data.get("sdxl_workflow"):
-                sdxl_path = wf_dir / f"scene_{scene_id:02d}_sdxl.json"
-                with open(sdxl_path, "w", encoding="utf-8") as f:
-                    json.dump(wf_data["sdxl_workflow"], f, ensure_ascii=False, indent=2)
-            
-            # 保存Wan2.2工作流
+            # 保存Wan2.2工作流（5秒/段，I2V）
             if wf_data.get("wan22_workflow"):
                 wan22_path = wf_dir / f"scene_{scene_id:02d}_wan22_i2v.json"
                 with open(wan22_path, "w", encoding="utf-8") as f:
@@ -872,7 +864,7 @@ def main():
     """独立运行时的入口"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="短剧仿制剧本生成 v2.0 (ComfyUI可执行版)")
+    parser = argparse.ArgumentParser(description="短剧仿制剧本生成 v2.1 (ComfyUI I2V 5秒分段版)")
     parser.add_argument("--rank-data", required=True, help="热度榜JSON文件路径")
     parser.add_argument("--script", action="store_true", help="生成仿制剧本")
     parser.add_argument("--genre", help="指定剧本题材")
