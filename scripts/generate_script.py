@@ -471,15 +471,15 @@ def generate_scenes(genre, templates):
             
             # === ComfyUI I2V 可执行配置 ===
             "comfyui": {
-                # SDXL 文生图配置（租算力跑，LoRA 锁人）
+                # SDXL 文生图配置（租算力跑，LoRA 锁人，高精度）
                 "sdxl": {
                     "prompt": sdxl_prompt,
                     "lora_prompt": lora_prompt,  # 带 LoRA 锁人关键词的增强版
                     "negative_prompt": SDXL_NEGATIVE_PROMPT,
-                    "width": 768,
-                    "height": 1344,
-                    "cfg_scale": 6.0,
-                    "steps": 25,
+                    "width": 832,
+                    "height": 1472,
+                    "cfg_scale": 7.0,
+                    "steps": 35,
                     "sampler": "euler_ancestral",
                     "checkpoint": "sd_xl_base_1.0.safetensors",
                     "lora": {

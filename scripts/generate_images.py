@@ -35,13 +35,13 @@ logger = logging.getLogger("generate_images")
 
 # ============ 默认参数 ============
 
-# SDXL 文生图默认参数（4090 FP16）
+# SDXL 文生图默认参数（4090 FP16，高精度）
 DEFAULT_SDXL_PARAMS = {
-    "width": 768,
-    "height": 1344,
-    "cfg_scale": 6.0,
-    "steps": 25,
-    "sampler": "euler_ancestral",
+    "width": 832,          # SDXL最佳原生比例 (接近1024:1024的3:5竖屏)
+    "height": 1472,        # 832x1472 ≈ SDXL原生竖屏最佳训练比例
+    "cfg_scale": 7.0,       # 标准值，细节更丰富
+    "steps": 35,            # 高精度步数（25-40，35为最佳平衡）
+    "sampler": "euler_ancestral",  # 画质最好
     "scheduler": "normal",
     "checkpoint": "sd_xl_base_1.0.safetensors",
     "seed": -1,
