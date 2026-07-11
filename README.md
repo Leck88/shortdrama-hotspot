@@ -1,36 +1,72 @@
 # shortdrama-hotspot
 
-**短剧热点监控 + 仿制剧本 + TTS配音先行 + Wan2.2 图生视频（5秒分段）** —— 从热点发现到成品视频的完整闭环。
+**短剧热点监控 + 仿制剧本 + TTS配音先行 + SDXL文生图(LoRA锁人) + Wan2.2 图生视频（5秒分段）** —— 从热点发现到成品视频的完整闭环。
 
-核心变化（v5.1）：**文生图外置 + 租算力跑 Wan2.2 + 5秒分段 + 尾帧续写拼接**。
+核心变化（v5.2）：**SDXL自动化文生图 + LoRA锁人 + 租算力跑 Wan2.2 + 5秒分段 + 尾帧续写拼接**。
 
 ```
-热点监控 → 爆款拆解 → 仿制剧本 → TTS配音(先行) → 【你准备分镜图】
-                                                    ↓
-                                          Wan2.2 I2V 5秒/段 → 尾帧续写 → 交叉淡化拼接
-                                                    ↓
-                                          字幕/合成 → 成品视频
+热点监控 → 爆款拆解 → 仿制剧本 → TTS配音(先行)
+                                       ↓
+                         SDXL文生图(768x1344, LoRA锁人, 每场3张抽卡)
+                                       ↓
+                              人工筛选最优分镜图
+                                       ↓
+                         Wan2.2 I2V 5秒/段 → 尾帧续写 → 交叉淡化拼接
+                                       ↓
+                              字幕/合成 → 成品视频
 ```
 
-## 为什么要改？
+## 完整8步流程
 
-| 项目 | v5.0（本地5060Ti） | v5.1（租算力4090） |
-|---|---|---|
-| 硬件 | RTX 5060 Ti 16GB | **云GPU RTX 4090 24GB** |
-| 生图 | SDXL本地跑 | **文生图外置，你自行搞定** |
-| 视频时长 | 8秒/段 | **5秒/段（更稳定）** |
-| 精度 | FP8/GGUF量化 | **FP16直出（画质更好）** |
-| 单条成本 | ~0.9元 | **~0.3-0.8元** |
-| 长视频 | 直接生成，易崩 | **尾帧续写+拼接，可控** |
-| 稳定性 | 5060Ti易爆显存 | **4090稳，可24小时跑** |
+```
+步骤1: 抓取热点（酷乐API + 抖音热搜）
+步骤2: 仿制剧本（含对白/旁白 + SDXL提示词 + LoRA锁人词）
+步骤3: TTS配音先行（Edge TTS/CosyVoice，音频时长决定分镜节奏）
+步骤4: SDXL文生图（768x1344竖屏, LoRA锁人, 每场3张抽卡, 租算力4090）
+步骤5: 人工筛选分镜图（或自动筛选最优）
+步骤6: Wan2.2 I2V（5秒/段, FP16直出, 尾帧续写）
+步骤7: 字幕生成（SRT格式，基于TTS时长精确生成时间轴）
+步骤8: FFmpeg拼接合成（多段5秒 + 交叉淡化 → 15秒+成片）
+```
 
-## 5秒分段策略（核心）
+## SDXL文生图 + LoRA锁人（v5.2核心新增）
+
+### 为什么需要LoRA锁人？
+
+短剧5场分镜，每场都是同一批人物。如果不锁人，不同场次的人物脸型、发型、穿着可能不一致，成片一看就是AI。
+
+### 锁人策略
+
+| 方案 | 原理 | 效果 | 难度 |
+|---|---|---|---|
+| **LoRA** | 训练一个人物小模型，挂在SDXL后面 | 脸型/发型/穿着高度一致 | 中（需训练LoRA） |
+| **IP-Adapter** | 给一张参考人脸图，让SDXL模仿 | 脸型相似，但不完美 | 低（只需一张参考图） |
+| **提示词锁人** | 所有场次使用相同外貌描述词 | 基础一致性，免费 | 低（已内置） |
+
+**本项目三种方式都支持**，推荐 LoRA + 提示词锁人 组合使用。
+
+### 提示词锁人示例
+
+每场SDXL提示词末尾自动追加：
+```
+same person in all scenes, consistent facial features, consistent eye color,
+consistent hairstyle, consistent clothing style, consistent skin tone,
+identical appearance across scenes
+```
+
+### LoRA 配置
+
+在 `config.py` 或环境变量中设置：
+
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| LoRA文件 | `SHORTDRAMA_LORA_NAME` | `face_lora.safetensors` | 放在 `ComfyUI/models/loras/` |
+| LoRA强度 | `SHORTDRAMA_LORA_STRENGTH` | `0.8` | 0.5-1.0，越高越像 |
+| 参考人脸 | `SHORTDRAMA_REFERENCE_FACE` | 空 | IP-Adapter锁脸用 |
+
+## 5秒分段策略
 
 **不要一次生成15秒。拆成 5秒 + 5秒 + 5秒，尾帧接力，交叉淡化拼接。**
-
-### 为什么5秒最好？
-
-扩散模型误差随时间累积。时间越长，越容易出现：人脸漂移、手脚变形、衣服纹理错乱。
 
 | 单段长度 | 质量 | 成功率 | 一致性 | 推荐 |
 |---|---|---|---|---|
@@ -63,38 +99,19 @@
 
 ### 推荐租算力配置
 
-| 显卡 | 显存 | 5秒生成时间 | 时租 | 单条成本 | 推荐度 |
+| 显卡 | 显存 | SDXL文生图 | Wan2.2 5秒视频 | 时租 | 推荐度 |
 |---|---|---|---|---|---|
-| RTX 4080 | 16GB | 需量化，易报错 | ¥3-5 | ¥0.5-1.2 | 不推荐 |
-| **RTX 4090** | **24GB** | **3-6分钟** | **¥4-8** | **¥0.3-0.8** | **首选** |
-| RTX 4090 48G | 48GB | 3-6分钟 | ¥10-18 | ¥0.8-2.5 | 不推荐（速度同24G） |
-| RTX 5090 | 32GB | 2-4分钟 | ¥8-15 | ¥0.4-1.0 | 速度最快，适合赶工 |
+| **RTX 4090** | **24GB** | **10-20秒/张** | **3-6分钟** | **¥4-8** | **首选** |
+| RTX 5090 | 32GB | 5-10秒/张 | 2-4分钟 | ¥8-15 | 速度最快 |
 
-### 租算力平台
+### 成本对比（15秒成片 = 3段 x 5秒）
 
-| 平台 | 4090时租 | 特点 |
-|---|---|---|
-| **AutoDL** | ¥4-8 | 最稳定，有现成ComfyUI镜像，按秒计费 |
-| 极智算 | 略低 | 长租划算 |
-| 算家云 | ¥1.24起 | 最便宜，但资源紧张 |
+| 方案 | SDXL | Wan2.2 | 总成本 | 日产100条 |
+|---|---|---|---|---|
+| 开源全链路 | ¥0.2-0.5 | ¥4.5-9.0 | **¥5-10** | **¥500-1000** |
+| 闭源：Kling/Seedance | - | - | ¥10-30/条 | ¥1000-3000 |
 
-### 成本对比（15秒成片 = 3段×5秒）
-
-| 方案 | 15秒成本 | 日产100条 |
-|---|---|---|
-| 开源：Wan2.2 + 租4090 | ¥1-2（含抽卡3条） | ¥100-200 |
-| 闭源：Kling / Seedance | ¥10-30 | ¥1000-3000 |
-
-**差距约10倍。**
-
-## 降低崩脸/变形的6条硬规则
-
-1. **每段只做一个动作**："slowly turning head" ✓  vs  "turn head + smile + wave" ✗
-2. **运动幅度压低**：motion_strength = **0.4**（默认0.8容易崩）
-3. **每段抽卡3-5条**：选最优，删其余
-4. **固定种子接力**：第一段 seed，第二段用 seed±5
-5. **人物加LoRA锁脸**：固定角色提前炼Face LoRA
-6. **崩了只重跑那一段**：分段的好处
+**全链路开源仍比闭源便宜3-6倍。**
 
 ## 快速开始
 
@@ -111,7 +128,7 @@ cd shortdrama-hotspot
 python fetch_hotspot.py
 ```
 
-### 3. 生成仿制剧本（含ComfyUI I2V配置）
+### 3. 生成仿制剧本（含SDXL提示词+LoRA锁人词）
 
 ```bash
 python fetch_hotspot.py --script        # 自动选最热题材
@@ -122,35 +139,27 @@ python fetch_hotspot.py --script --batch # 批量生成5个
 ### 4. 一键Pipeline
 
 ```bash
-# 仅热点+剧本+TTS先行
-python pipeline.py --auto
-
-# 指定题材
-python pipeline.py --auto --genre "婚恋"
-
-# 完整流程：热点→剧本→TTS先行→生视频（需ComfyUI服务运行中）
+# 全自动（8步）：热点→剧本→TTS→SDXL文生图→Wan2.2生视频→字幕→合成
 python pipeline.py --auto --run-comfyui
 
-# 全套：+字幕+合成
+# 全自动 + TTS配音 + 字幕
 python pipeline.py --auto --run-comfyui --tts
 
-# 从已有剧本开始
-python pipeline.py --from-script <剧本.md> --run-comfyui
+# 仅热点+剧本+TTS（不含生图生视频）
+python pipeline.py --auto
 
 # 成本估算
 python pipeline.py --cost-estimate
 ```
 
-## 完整7步流程
+### 5. 单独文生图（调试用）
 
-```
-步骤1: 抓取热点（热度榜+抖音热搜）
-步骤2: 仿制剧本（含对白/旁白 + Wan2.2运动提示词）
-步骤3: TTS配音先行（Edge TTS/CosyVoice，音频时长决定分镜节奏）
-步骤4: 分镜规划 + 准备分镜图（文生图由你自行搞定）
-步骤5: Wan2.2 I2V（5秒/段，FP16直出，尾帧续写）
-步骤6: 字幕生成（SRT格式，基于TTS时长精确生成时间轴）
-步骤7: FFmpeg拼接合成（多段5秒 + 交叉淡化 → 15秒+成片）
+```bash
+python scripts/generate_images.py \
+  --script output/scripts/婚恋_xxx_2026-07-11.md \
+  --lora face_lora.safetensors \
+  --lora-strength 0.8 \
+  --batch 3
 ```
 
 ## 配置参考（config.py）
@@ -160,33 +169,31 @@ python pipeline.py --cost-estimate
 | `SHORTDRAMA_OUTPUT_DIR` | `./output` | 输出根目录 |
 | `COMFYUI_API_URL` | `http://127.0.0.1:8188` | ComfyUI API地址 |
 | `SHORTDRAMA_COST_PER_HOUR` | `6.0` | 云GPU时租（元） |
-| `SHORTDRAMA_API_TIMEOUT` | `15` | API超时（秒） |
-| `SHORTDRAMA_API_RETRIES` | `3` | API重试次数 |
+| `SHORTDRAMA_LORA_NAME` | `face_lora.safetensors` | LoRA模型文件名 |
+| `SHORTDRAMA_LORA_STRENGTH` | `0.8` | LoRA强度 |
+| `SHORTDRAMA_SDXL_BATCH` | `3` | 每场抽卡数量 |
+| `SHORTDRAMA_SDXL_CHECKPOINT` | `sd_xl_base_1.0.safetensors` | SDXL模型 |
 
-## ComfyUI 工作流文件
+## 降低崩脸/变形的6条硬规则
 
-| 文件 | 功能 | 备注 |
-|---|---|---|
-| `workflows/wan22_i2v_1080p_8s.json` | Wan2.2 I2V 图生视频 | 改 frames=81, fps=16 即为5秒 |
-| `workflows/sdxl_wan22_combined.json` | 组合工作流 | 如需SDXL可保留 |
-
-**Wan2.2 关键参数**：
-- frames: **81** (5秒@16fps)
-- motion_strength: **0.4**
-- cfg_scale: **6.5**
-- 模型: Wan2.2-I2V-14B-480P FP16
-- 输入图: 你的分镜图（768x1344+ 竖屏）
+1. **每段只做一个动作**："slowly turning head" ✓  vs  "turn head + smile + wave" ✗
+2. **运动幅度压低**：motion_strength = **0.4**（默认0.8容易崩）
+3. **每段抽卡3-5条**：选最优，删其余
+4. **固定种子接力**：第一段 seed，第二段用 seed±5
+5. **人物加LoRA锁脸**：固定角色提前炼Face LoRA
+6. **崩了只重跑那一段**：分段的好处
 
 ## 项目结构
 
 ```
 shortdrama-hotspot/
 ├── fetch_hotspot.py          # 热点抓取+日报生成
-├── pipeline.py               # 一键Pipeline（7步完整流程）
-├── config.py                 # 集中配置（路径/参数/API地址/成本）
+├── pipeline.py               # 一键Pipeline（8步完整流程）
+├── config.py                 # 集中配置（路径/参数/API/LoRA/成本）
 ├── requirements.txt
 ├── scripts/
-│   ├── generate_script.py    # 剧本生成（含Wan2.2 I2V配置）
+│   ├── generate_script.py    # 剧本生成（含SDXL提示词+LoRA锁人词）
+│   ├── generate_images.py    # SDXL文生图自动化（租算力+LoRA锁人）★新增
 │   ├── comfyui_api.py        # ComfyUI API交互
 │   └── tts_subtitle.py       # TTS配音+字幕生成
 ├── utils/
@@ -195,9 +202,7 @@ shortdrama-hotspot/
 ├── templates/
 │   ├── genre_templates.json  # 10种题材剧本模板
 │   └── comfyui_pipeline_config.json
-├── workflows/
-│   ├── wan22_i2v_1080p_8s.json
-│   └── sdxl_wan22_combined.json
+├── workflows/                 # ComfyUI工作流JSON
 └── tests/
     ├── test_genre.py
     └── test_config.py
@@ -205,25 +210,21 @@ shortdrama-hotspot/
 
 ## 常见问题
 
-**Q: 16GB显存本地能跑吗？**
+**Q: LoRA怎么训练？**
 
-能，但体验不佳。需要开FP8/量化，分辨率受限。建议租4090。
+用 `kohya_ss` 或 `sd-scripts`，20-30张人脸照片即可训练一个SDXL LoRA。训练约30-60分钟（4090）。
 
-**Q: 文生图用什么工具？**
+**Q: 没有LoRA怎么办？**
 
-随意。Midjourney、Stable Diffusion、Flux、即梦、可灵……只要输出768x1344+竖屏图即可。
+项目内置了提示词锁人（same person / consistent face），基础可用。效果不如LoRA但免费。
+
+**Q: IP-Adapter和LoRA可以同时用吗？**
+
+可以。在 `config.py` 中设置 `SHORTDRAMA_REFERENCE_FACE` 指向参考人脸图片即可。
 
 **Q: 热点API不稳定怎么办？**
 
 内置3次重试+60分钟缓存。同一小时内重复请求直接读缓存。
-
-**Q: 5秒会不会太短？**
-
-短视频本身很少一个镜头连续15秒。多镜头+转场+音效，节奏更好，用户留存更高。
-
-**Q: 怎么批量自动化？**
-
-ComfyUI API + 自动队列 + 失败重试 + 自动拼接。可用 `comfy-cli` 或直接POST workflow JSON。
 
 ## License
 
@@ -231,25 +232,22 @@ MIT
 
 ## 更新日志
 
+### v5.2 (2026-07-11)
+
+- **SDXL文生图自动化**: 新增 `scripts/generate_images.py`，租算力跑SDXL
+- **LoRA锁人**: 所有场次自动使用同一LoRA，保证人物一致性
+- **IP-Adapter锁脸**: 可选参考图锁脸，与LoRA互补
+- **提示词锁人**: 每场SDXL提示词自动追加 same person / consistent face
+- **8步流程**: 从7步扩展为8步，SDXL自动生图替代手动准备
+- **成本模型更新**: 包含SDXL文生图耗时和费用
+
 ### v5.1 (2026-07-11)
 
-- **租算力方案**: 从本地5060Ti改为云GPU RTX 4090/5090租赁
-- **5秒分段**: 视频从8秒改为5秒/段，稳定性更高
-- **尾帧续写**: 新增分段拼接策略，交叉淡化重叠0.5秒
-- **文生图外置**: 去掉SDXL，分镜图由用户自行准备
-- **成本重构**: 单条5秒视频约 ¥0.3-0.8，比闭源便宜10倍
-- **FP16直出**: 4090 24GB无需量化，画质更好
-- **运动幅度降低**: motion_strength从0.8改为0.4，崩脸率大幅下降
+- 租算力方案、5秒分段、尾帧续写、文生图外置
 
 ### v5.0 (2026-06-02)
 
 - 配音先行流程重构
-- 从剧本→TTS→分镜→视频→合成
-
-### v4.2 (2026-05-25)
-
-- 新增本地硬件部署指南（5060Ti）
-- 新增16GB显存优化方案
 
 ### v4.1 (2026-05-23)
 

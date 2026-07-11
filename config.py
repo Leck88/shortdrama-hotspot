@@ -32,6 +32,7 @@ class Config:
     VIDEO_DIR = OUTPUT_DIR / "videos"
     TTS_DIR = OUTPUT_DIR / "tts"
     SUBTITLE_DIR = OUTPUT_DIR / "subtitles"
+    STORYBOARD_DIR = OUTPUT_DIR / "storyboard_images"  # 分镜图输出目录
 
     # 模板和工作流目录（项目内置）
     TEMPLATES_DIR = PROJECT_ROOT / "templates"
@@ -62,10 +63,24 @@ class Config:
     # ============ 成本参数 ============
     # 云GPU RTX 4090 租赁价格（元/小时），AutoDL/极智算参考价
     COST_PER_HOUR = float(os.environ.get("SHORTDRAMA_COST_PER_HOUR", "6.0"))
-    # 文生图由用户本地/外置搞定，此处不计入成本
-    WAN22_TIME_PER_VIDEO_S = 270  # 5秒视频 @ RTX 4090 FP16 约 3-6 分钟
+    # SDXL 文生图耗时（秒/张），RTX 4090 FP16 约 10-20秒
+    SDXL_TIME_PER_IMAGE_S = float(os.environ.get("SHORTDRAMA_SDXL_TIME", "15"))
+    # Wan2.2 图生视频耗时（秒/段），RTX 4090 FP16 约 3-6分钟
+    WAN22_TIME_PER_VIDEO_S = 270
     FFMPEG_TIME_S = 120
     TTS_TIME_S = 30
+
+    # ============ 文生图 / LoRA 配置 ============
+    # LoRA 模型文件名（放在 ComfyUI/models/loras/ 下）
+    LORA_NAME = os.environ.get("SHORTDRAMA_LORA_NAME", "face_lora.safetensors")
+    # LoRA 强度（0.5-1.0，越高人物越像参考图）
+    LORA_STRENGTH = float(os.environ.get("SHORTDRAMA_LORA_STRENGTH", "0.8"))
+    # 每场抽卡数量
+    SDXL_BATCH_PER_SCENE = int(os.environ.get("SHORTDRAMA_SDXL_BATCH", "3"))
+    # 参考人脸图片路径（IP-Adapter 锁脸用，可选）
+    REFERENCE_FACE_IMAGE = os.environ.get("SHORTDRAMA_REFERENCE_FACE", "")
+    # SDXL 模型文件名
+    SDXL_CHECKPOINT = os.environ.get("SHORTDRAMA_SDXL_CHECKPOINT", "sd_xl_base_1.0.safetensors")
 
     # ============ Python 解释器（TTS用） ============
     PYTHON_EXE = os.environ.get(
@@ -85,7 +100,7 @@ class Config:
         """确保所有输出目录存在"""
         for d in [self.OUTPUT_DIR, self.REPORT_DIR, self.SCRIPT_DIR,
                   self.VIDEO_DIR, self.TTS_DIR, self.SUBTITLE_DIR,
-                  self.CACHE_DIR]:
+                  self.STORYBOARD_DIR, self.CACHE_DIR]:
             d.mkdir(parents=True, exist_ok=True)
 
 

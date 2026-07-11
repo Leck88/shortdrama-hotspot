@@ -379,6 +379,32 @@ def generate_wan22_motion_prompt(genre, scene_index):
 
 # ============ 分场剧本生成 ============
 
+def build_character_lock_prompt(base_prompt, female_name, male_name):
+    """
+    在 SDXL 提示词基础上添加人物一致性关键词（用于 LoRA 锁人）
+
+    策略：
+    - 明确指定人物外貌特征，让 LoRA 有更清晰的锁定目标
+    - 添加 same person / consistent face 等一致性增强词
+    - 所有场次使用相同的人物描述，确保跨场一致
+    """
+    # 人物固定外貌描述（所有场次共享）
+    character_lock = (
+        "same person in all scenes, "
+        "consistent facial features, "
+        "consistent eye color, "
+        "consistent hairstyle, "
+        "consistent clothing style, "
+        "consistent skin tone, "
+        "identical appearance across scenes"
+    )
+
+    # 在原始提示词末尾追加一致性关键词
+    enhanced = f"{base_prompt}, {character_lock}"
+
+    return enhanced
+
+
 def generate_scenes(genre, templates):
     """基于题材模板生成分场剧本（含ComfyUI I2V配置）"""
     template = templates.get(genre, templates.get("婚恋", {}))
@@ -430,7 +456,11 @@ def generate_scenes(genre, templates):
     scenes = []
     for i, scene_tpl in enumerate(scene_templates, 1):
         scene_idx = i
+        sdxl_prompt = generate_sdxl_prompt(genre, scene_idx, scene_tpl["name"], female_name, male_name)
         wan22_motion = generate_wan22_motion_prompt(genre, scene_idx)
+        
+        # LoRA 锁人提示词：在原始 SDXL 提示词基础上添加一致性关键词
+        lora_prompt = build_character_lock_prompt(sdxl_prompt, female_name, male_name)
         
         scene = {
             "scene_id": scene_idx,
@@ -441,13 +471,24 @@ def generate_scenes(genre, templates):
             
             # === ComfyUI I2V 可执行配置 ===
             "comfyui": {
-                # 分镜图要求（文生图外置，由用户自行准备）
-                "image_requirements": {
-                    "resolution": "768x1344 或更高",
-                    "aspect_ratio": "9:16 竖屏",
-                    "format": "PNG/JPG",
-                    "placement": "放入 ComfyUI input/ 目录",
-                    "note": "文生图由你自行搞定，建议用你熟悉的工具生成",
+                # SDXL 文生图配置（租算力跑，LoRA 锁人）
+                "sdxl": {
+                    "prompt": sdxl_prompt,
+                    "lora_prompt": lora_prompt,  # 带 LoRA 锁人关键词的增强版
+                    "negative_prompt": SDXL_NEGATIVE_PROMPT,
+                    "width": 768,
+                    "height": 1344,
+                    "cfg_scale": 6.0,
+                    "steps": 25,
+                    "sampler": "euler_ancestral",
+                    "checkpoint": "sd_xl_base_1.0.safetensors",
+                    "lora": {
+                        "lora_name": "face_lora.safetensors",
+                        "strength_model": 0.8,
+                        "strength_clip": 0.8,
+                    },
+                    "batch_per_scene": 3,  # 每场抽卡3张
+                    "selection": "人工筛选最优 → 重命名为 scene_XX_selected.png",
                 },
                 # Wan2.2 图生视频配置（5秒/段，4090 FP16直出）
                 "wan22_i2v": {
@@ -510,9 +551,10 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     lines.append(f"- **剧名**: 《{title}》")
     lines.append(f"- **题材**: {genre}")
     lines.append(f"- **时长**: 约15-25秒（5场 × 5秒/段，拼接后）")
-    lines.append(f"- **分辨率**: 输入图建议 768x1344+ → Wan2.2 832x480 → 可选 upscale 1080P")
+    lines.append(f"- **分辨率**: SDXL 768x1344 → Wan2.2 832x480 → 可选 upscale 1080P")
     lines.append(f"- **总场数**: 5场")
     lines.append(f"- **总视频段数**: 5段（每段5秒），可拼接为15-25秒成片")
+    lines.append(f"- **人物锁人**: LoRA ({config.LORA_NAME}, 强度 {config.LORA_STRENGTH})")
     if ref_title:
         lines.append(f"- **参考剧目**: 《{ref_title}》")
     if rank_info:
@@ -520,15 +562,18 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     lines.append("")
     
     # 制作流程
-    lines.append("## 制作流程\n")
+    lines.append("## 制作流程（8步自动化）\n")
     lines.append("```")
-    lines.append("步骤1: 你自行准备分镜图 (768x1344+ 竖屏 PNG/JPG)")
-    lines.append("  ↓  放入 ComfyUI input/ 目录")
-    lines.append("步骤2: Wan2.2 I2V 生5秒视频 (832x480输入, FP16直出)")
-    lines.append("  ↓  每段抽卡3-5条，筛选最优，约3-6分钟/段")
-    lines.append("步骤3: 尾帧续写 → 下一段5秒（使用 WanVideoStartEndFrames）")
+    lines.append("步骤1: 抓取热点 + 生成剧本")
+    lines.append("步骤2: TTS配音先行（音频时长决定分镜节奏）")
+    lines.append("步骤3: SDXL文生图（768x1344竖屏，LoRA锁人，每场3张抽卡）")
+    lines.append("  ↓  租算力 4090，约10-20秒/张")
+    lines.append("步骤4: 人工筛选最优分镜图（或自动筛选）")
+    lines.append("步骤5: Wan2.2 I2V 生5秒视频 (832x480, FP16直出)")
+    lines.append("  ↓  每段抽卡3条，筛选最优，约3-6分钟/段")
+    lines.append("步骤6: 尾帧续写 → 下一段5秒（WanVideoStartEndFrames）")
     lines.append("  ↓  交叉淡化重叠0.5秒，保证衔接自然")
-    lines.append("步骤4: FFmpeg拼接+字幕+配音")
+    lines.append("步骤7: FFmpeg拼接+字幕+配音")
     lines.append("  ↓  约2分钟")
     lines.append("成品: 15-25秒竖屏短剧（可扩展为更长）")
     lines.append("```\n")
@@ -537,12 +582,12 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     lines.append("## 成本估算（云GPU RTX 4090, ~6元/小时）\n")
     lines.append("| 步骤 | 数量 | 单次耗时 | 单次成本 | 总耗时 | 总成本 |")
     lines.append("|------|:----:|---------|---------|--------|-------:|")
-    lines.append("| 分镜图 | 5张 | 外置 | 外置 | 外置 | 外置 |")
-    lines.append("| Wan2.2视频 | 5段 | 3-6分钟 | ~0.3-0.6元 | 15-30分钟 | 1.5-3.0元 |")
+    lines.append("| SDXL分镜图 | 15张(5场x3) | 10-20秒 | ~0.02元 | 2-5分钟 | 0.2-0.5元 |")
+    lines.append("| Wan2.2视频 | 15段(5场x3) | 3-6分钟 | ~0.3-0.6元 | 45-90分钟 | 4.5-9.0元 |")
     lines.append("| FFmpeg合成 | 1次 | 2分钟 | ~0.2元 | 2分钟 | 0.2元 |")
-    lines.append("| **合计** | - | - | - | **20-35分钟** | **约1.7-3.2元** |")
+    lines.append("| **合计** | - | - | - | **50-100分钟** | **约5.0-9.7元** |")
     lines.append("")
-    lines.append("> 💡 实际成本取决于抽卡次数。每段生成3条筛选，成本×3。仍比闭源方案便宜10倍。\n")
+    lines.append("> 💡 成本含抽卡（每场3张/3段），实际可能更少。仍比闭源方案（¥10-30/条）便宜3-6倍。\n")
     
     # 一句话梗概
     synopsis = generate_synopsis(genre, templates, title, ref_title)
@@ -606,18 +651,29 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
         # ComfyUI配置区块
         comfyui = scene.get("comfyui", {})
         if comfyui:
-            lines.append(f"#### 🎬 ComfyUI I2V配置 - 第{i}场\n")
+            lines.append(f"#### 🎬 ComfyUI配置 - 第{i}场\n")
             
-            # 分镜图要求
-            img_req = comfyui.get("image_requirements", {})
-            lines.append(f"**分镜图要求**（文生图外置，你自行准备）\n")
-            lines.append(f"```")
-            lines.append(f"分辨率: {img_req.get('resolution', '768x1344+')}")
-            lines.append(f"比例: {img_req.get('aspect_ratio', '9:16 竖屏')}")
-            lines.append(f"格式: {img_req.get('format', 'PNG/JPG')}")
-            lines.append(f"放置: {img_req.get('placement', 'ComfyUI input/ 目录')}")
-            lines.append(f"备注: {img_req.get('note', '文生图由你自行搞定')}")
-            lines.append(f"```\n")
+            # SDXL文生图配置（含LoRA锁人）
+            sdxl = comfyui.get("sdxl", {})
+            if sdxl:
+                lines.append(f"**SDXL文生图**（租算力4090，LoRA锁人）\n")
+                lines.append(f"```")
+                lines.append(f"正向提示词:")
+                lines.append(f"  {sdxl.get('prompt', '')}")
+                lines.append(f"")
+                lines.append(f"LoRA锁人增强提示词:")
+                lines.append(f"  {sdxl.get('lora_prompt', '')}")
+                lines.append(f"")
+                lines.append(f"参数配置:")
+                lines.append(f"  分辨率: {sdxl.get('width', 768)}x{sdxl.get('height', 1344)} (9:16竖屏)")
+                lines.append(f"  CFG Scale: {sdxl.get('cfg_scale', 6.0)}")
+                lines.append(f"  Steps: {sdxl.get('steps', 25)}")
+                lines.append(f"  Sampler: {sdxl.get('sampler', 'euler_ancestral')}")
+                lines.append(f"  LoRA: {sdxl.get('lora', {}).get('lora_name', 'face_lora.safetensors')}")
+                lines.append(f"  LoRA强度: {sdxl.get('lora', {}).get('strength_model', 0.8)}")
+                lines.append(f"  每场抽卡: {sdxl.get('batch_per_scene', 3)} 张")
+                lines.append(f"  耗时: ~10-20秒/张 (4090 FP16)")
+                lines.append(f"```\n")
             
             # Wan2.2配置
             wan22 = comfyui.get("wan22_i2v", {})
@@ -646,8 +702,8 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
             
             # 时间成本
             tc = comfyui.get("time_cost", {})
-            lines.append(f"⏱ 本场耗时: Wan2.2 {tc.get('wan22_time_s', '')} = **{tc.get('total_time_s', '')}**")
-            lines.append(f"💰 本场成本: **{tc.get('cost_yuan', '')}**\n")
+            lines.append(f"⏱ 本场耗时: SDXL ~30-60秒 + Wan2.2 {tc.get('wan22_time_s', '')} = **总计约{tc.get('total_time_s', '10-15分钟')}**")
+            lines.append(f"💰 本场成本: SDXL ~0.05-0.15元 + Wan2.2 {tc.get('cost_yuan', '')} = **约0.4-1.0元**\n")
     
     # 钩子设计
     lines.append("## 钩子设计\n")
@@ -657,11 +713,13 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     
     # 拍摄/AI生成提示
     lines.append("## 拍摄/AI生成提示\n")
-    lines.append("- 分辨率: **输入图 768x1344+ (9:16竖屏) → Wan2.2 832x480 → 可选 upscale 1080P**")
+    lines.append("- 分辨率: **SDXL 768x1344 (9:16竖屏) → Wan2.2 832x480 → 可选 upscale 1080P**")
+    lines.append("- **人物锁人**: 所有场次使用同一 LoRA，提示词包含 same person / consistent face")
+    lines.append("- **文生图抽卡**: 每场生成3张，人工筛选最优（同一人物角度/表情/光线一致）")
     lines.append("- 每段视频固定 **5秒**，低运动幅度（motion_strength=0.4）提高稳定性")
     lines.append("- 长视频策略: 5秒+5秒+5秒，尾帧续写，交叉淡化拼接")
     lines.append("- 每场1个分镜图对应1段5秒视频，5场可拼接为15-25秒成片")
-    lines.append("- 每段生成3-5条，筛选最优，避免崩脸/变形")
+    lines.append("- 每段生成3条视频，筛选最优，避免崩脸/变形")
     lines.append("- 提示词只描述单一简单动作，避免复合动作（如'转头+微笑+抬手'）")
     lines.append("- 开头5秒和结尾5秒为关键留存点，务必精彩")
     lines.append("")
@@ -670,6 +728,7 @@ def render_script_md(title, genre, ref_title, templates, scene_data, rank_info="
     lines.append("## ComfyUI工作流文件\n")
     lines.append("| 工作流 | 文件 | 用途 |")
     lines.append("|--------|------|------|")
+    lines.append("| SDXL文生图 | `scripts/generate_images.py` (自动构建) | LoRA锁人文生图 |")
     lines.append("| Wan2.2 I2V 5秒 | `workflows/wan22_i2v_1080p_8s.json` | 图生5秒视频（改frames=81, fps=16） |")
     lines.append("| Wan2.2 首尾帧续写 | `workflows/wan22_i2v_startend.json` | 尾帧接力生成下一段 |")
     lines.append("")

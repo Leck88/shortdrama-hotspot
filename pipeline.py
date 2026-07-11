@@ -1,30 +1,23 @@
 #!/usr/bin/env python3
 """
-短剧制作一键Pipeline v5.0 (Shortdrama Production Pipeline) —— 配音先行版
+短剧制作一键Pipeline v5.2 (Shortdrama Production Pipeline) —— 租算力+SDXL+LoRA锁人+5秒分段版
 
-改进点（相比 v4.1）：
-1. 新增 Flux2-Klein-9B 文生图工作流支持（fp4量化版，1024x1820 → 1080x1920）
-2. 修改 Wan2.2-14B 文生视频工作流为8秒@16fps（832x480 → upscale 1080P）
-3. 修复 comfyui_api.py 缺少 import sys 的 bug
-4. 新增 fetch_hotspot.py 热点抓取模块（带API降级和备选数据）
-5. 修正 fetch_hotspot 导入路径（scripts/ 子目录）
-
-完整7步流程（配音先行 + 图生视频）：
-  1. 抓取热点 → 2. 生成剧本(含对白/旁白+分镜提示词) →
-  3. TTS配音先行 → 4. 分镜规划(根据音频时长) →
-  5. Wan2.2 图生视频（5秒/段，尾帧续写） →
-  6. 字幕生成 → 7. FFmpeg拼接合成
+完整8步流程（配音先行 + SDXL文生图 + LoRA锁人 + Wan2.2图生视频）：
+  1. 抓取热点 → 2. 生成剧本(含对白/旁白+SDXL提示词+LoRA锁人词) →
+  3. TTS配音先行 → 4. SDXL文生图（租算力4090，LoRA锁人，每场3张抽卡） →
+  5. 人工筛选分镜图 → 6. Wan2.2 图生视频（5秒/段，尾帧续写） →
+  7. 字幕生成 → 8. FFmpeg拼接合成
 
 核心思路：
-  - 文生图外置搞定（你自行准备分镜图）
+  - SDXL文生图自动化（租算力跑），LoRA锁人保证人物一致性
   - 配音先行，音频时长决定分镜张数和停留节奏
   - 图生视频每段固定5秒，尾帧接力续写下一段，交叉淡化拼接
-  - 租算力跑（RTX 4090/5090），FP16直出，单段成本约 ¥0.3-0.8
+  - 租算力跑（RTX 4090/5090），FP16直出
 
 使用方式：
   python pipeline.py --auto                    # 全自动：抓热点→剧本→TTS先行
-  python pipeline.py --auto --run-comfyui      # 全自动+调用ComfyUI生视频
-  python pipeline.py --auto --run-comfyui --tts # 全自动+ComfyUI+TTS配音+字幕
+  python pipeline.py --auto --run-comfyui      # 全自动+SDXL文生图+Wan2.2生视频
+  python pipeline.py --auto --run-comfyui --tts # 全自动+全套
   python pipeline.py --from-script <script.md> # 从已有剧本开始
   python pipeline.py --cost-estimate           # 仅计算成本估算
 
@@ -76,23 +69,26 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, incl
     total_images = num_episodes * scenes_per_episode * angles_per_scene
     total_videos = total_images
 
-    # 文生图外置搞定，不计入成本
+    # 文生图+图生视频成本
+    sdxl_time = total_images * config.SDXL_TIME_PER_IMAGE_S
     wan22_time = total_videos * config.WAN22_TIME_PER_VIDEO_S
     ffmpeg_time = num_episodes * config.FFMPEG_TIME_S
     tts_time = num_episodes * config.TTS_TIME_S if include_tts else 0
-    total_time = wan22_time + ffmpeg_time + tts_time
+    total_time = sdxl_time + wan22_time + ffmpeg_time + tts_time
 
     cost_per_hour = config.COST_PER_HOUR
+    sdxl_cost = (sdxl_time / 3600) * cost_per_hour
     wan22_cost = (wan22_time / 3600) * cost_per_hour
     ffmpeg_cost = (ffmpeg_time / 3600) * cost_per_hour
     tts_cost = (tts_time / 3600) * cost_per_hour
-    total_cost = wan22_cost + ffmpeg_cost + tts_cost
+    total_cost = sdxl_cost + wan22_cost + ffmpeg_cost + tts_cost
 
     return {
         "num_episodes": num_episodes,
         "total_images": total_images,
         "total_videos": total_videos,
         "time": {
+            "sdxl": f"{sdxl_time//60}分{sdxl_time%60}秒",
             "wan22": f"{wan22_time//60}分{wan22_time%60}秒",
             "ffmpeg": f"{ffmpeg_time//60}分{ffmpeg_time%60}秒",
             "tts": f"{tts_time//60}分{tts_time%60}秒" if include_tts else "0分0秒",
@@ -101,6 +97,7 @@ def estimate_cost(num_episodes=1, scenes_per_episode=5, angles_per_scene=3, incl
             "total_hours": f"{total_time/3600:.1f}小时",
         },
         "cost": {
+            "sdxl": f"¥{sdxl_cost:.2f}",
             "wan22": f"¥{wan22_cost:.2f}",
             "ffmpeg": f"¥{ffmpeg_cost:.3f}",
             "tts": f"¥{tts_cost:.3f}" if include_tts else "¥0",
@@ -176,24 +173,64 @@ def step2_generate_script(rank_data, output_dir, genre=None, comfyui_mode=True):
     return filepath, title, script_genre, script_workflow_dir
 
 
-# ============ 步骤3：准备分镜图（文生图外置） ============
-def step3_prepare_images(workflow_dir, comfyui_running=False):
-    """步骤4：准备分镜图——文生图由用户自行搞定，此处仅做校验和提示"""
-    print_step(4, 7, "准备分镜图（文生图外置）...")
+# ============ 步骤4：SDXL文生图（租算力+LoRA锁人） ============
+def step4_generate_images(script_path, output_dir, comfyui_running=False):
+    """步骤4：SDXL文生图（租算力4090，LoRA锁人，每场3张抽卡）"""
+    print_step(4, 8, "SDXL文生图（LoRA锁人）...")
 
-    print("  📋 文生图由你自行搞定，请按以下要求准备：")
-    print("    1. 根据剧本分镜，用你熟悉的工具生成/准备分镜图")
-    print("    2. 图片格式: PNG/JPG，建议分辨率 768x1344 或更高")
-    print("    3. 将图片放入 ComfyUI 的 input/ 目录，或工作流指定路径")
-    print("    4. 确保每张图对应一个 Wan2.2 I2V 视频段（5秒）")
-    print("  ⏭ 跳过自动生图。如需批量生图，请自行接入你的文生图流程")
-    return True
+    scripts_dir = str(config.SCRIPTS_PKG_DIR)
+    sys.path.insert(0, scripts_dir)
+    from generate_images import generate_storyboard_images
+
+    storyboard_dir = str(config.STORYBOARD_DIR)
+
+    if not comfyui_running:
+        print("  ⏭ ComfyUI未运行，跳过自动生图")
+        print("  📋 手动操作步骤：")
+        print("    1. 启动租算力机上的 ComfyUI")
+        print(f"    2. 设置 COMFYUI_API_URL 指向租算力机")
+        print(f"    3. 运行: python scripts/generate_images.py --script {script_path}")
+        print(f"    4. 或: python pipeline.py --auto --run-comfyui")
+        return []
+
+    try:
+        lora_params = {
+            "lora_name": config.LORA_NAME,
+            "strength_model": config.LORA_STRENGTH,
+            "strength_clip": config.LORA_STRENGTH,
+        }
+        ipadapter_params = None
+        if config.REFERENCE_FACE_IMAGE:
+            ipadapter_params = {"reference_image": config.REFERENCE_FACE_IMAGE}
+
+        images = generate_storyboard_images(
+            script_path=script_path,
+            output_dir=storyboard_dir,
+            comfyui_url=config.COMFYUI_API_URL,
+            lora_params=lora_params,
+            ipadapter_params=ipadapter_params,
+            batch_per_scene=config.SDXL_BATCH_PER_SCENE,
+        )
+
+        if images:
+            print(f"  ✅ 共生成 {len(images)} 张分镜图")
+            print(f"  📁 输出: {storyboard_dir}")
+            print(f"  💡 下一步: 人工筛选最优图片，重命名为 scene_XX_selected.png")
+        else:
+            print("  ⚠ 未生成图片，后续步骤将使用空图片列表")
+
+        return images
+
+    except Exception as e:
+        logger.error(f"文生图失败: {e}")
+        print("  ✗ 文生图失败，请检查 ComfyUI 连接和 LoRA 模型")
+        return []
 
 
 # ============ 步骤4：Wan2.2生视频（5秒/段） ============
 def step4_generate_videos(workflow_dir, comfyui_running=False):
     """步骤5：Wan2.2 I2V生成5秒竖屏视频"""
-    print_step(5, 7, "Wan2.2 I2V生成5秒竖屏视频...")
+    print_step(6, 8, "Wan2.2 I2V生成5秒竖屏视频...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -268,8 +305,8 @@ def step5_generate_tts(script_path, output_dir):
 
 # ============ 步骤6：字幕生成 ============
 def step6_generate_subtitles(tts_results, output_dir, script_path=None):
-    """步骤6：生成SRT字幕"""
-    print_step(6, 7, "生成SRT字幕...")
+    """步骤7：生成SRT字幕"""
+    print_step(7, 8, "生成SRT字幕...")
 
     scripts_dir = str(config.SCRIPTS_PKG_DIR)
     sys.path.insert(0, scripts_dir)
@@ -294,8 +331,8 @@ def step6_generate_subtitles(tts_results, output_dir, script_path=None):
 
 # ============ 步骤7：FFmpeg合成 ============
 def step7_compose_video(video_dir, output_dir, tts_results=None, srt_path=None):
-    """步骤7：FFmpeg合成最终视频（含配音+字幕）"""
-    print_step(7, 7, "FFmpeg合成最终视频...")
+    """步骤8：FFmpeg合成最终视频（含配音+字幕）"""
+    print_step(8, 8, "FFmpeg合成最终视频...")
 
     # 检查FFmpeg
     try:
@@ -391,11 +428,12 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     start_time = time.time()
     cost_per_hour = config.COST_PER_HOUR
 
-    print_header("短剧制作Pipeline v5.1 - 租算力+5秒分段版 (9:16)")
+    print_header("短剧制作Pipeline v5.2 - 租算力+SDXL+LoRA锁人+5秒分段版 (9:16)")
     print(f"  硬件: 云GPU RTX 4090 24GB (AutoDL/极智算)")
     print(f"  成本: ¥{cost_per_hour}/小时")
-    print(f"  分辨率: 输入图 → Wan2.2 832x480 → 可选upscale 1080P")
-    print(f"  流程: 剧本→【TTS配音先行】→分镜图(自备)→5秒视频→续写→拼接→合成")
+    print(f"  分辨率: SDXL 768x1344 → Wan2.2 832x480 → 可选upscale 1080P")
+    print(f"  人物锁人: LoRA ({config.LORA_NAME}, 强度 {config.LORA_STRENGTH})")
+    print(f"  流程: 剧本→TTS先行→SDXL生图(LoRA锁人)→筛选→Wan2.2生视频→续写→拼接→合成")
     print(f"  ComfyUI: {'在线' if comfyui_running else '离线（手动模式）'}")
     print(f"  TTS配音: {'开启（先行模式）' if enable_tts else '关闭'}")
     print(f"  字幕: {'开启' if enable_subtitles else '关闭'}")
@@ -424,11 +462,8 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
         tts_results = step5_generate_tts(script_path, output_dir)
         # TODO: 根据TTS音频时长计算分镜张数
 
-    # 步骤4：准备分镜图（文生图外置）
-    if latest_wf and os.path.exists(latest_wf):
-        step3_prepare_images(latest_wf, comfyui_running)
-    else:
-        print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤4")
+    # 步骤4：SDXL文生图（租算力+LoRA锁人）
+    storyboard_images = step4_generate_images(script_path, output_dir, comfyui_running)
 
     # 步骤5：Wan2.2生视频（5秒/段）
     if latest_wf and os.path.exists(latest_wf):
@@ -436,12 +471,12 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     else:
         print("\n  ⏭ 未找到ComfyUI工作流目录，跳过步骤5")
 
-    # 步骤6：字幕生成
+    # 步骤7：字幕生成
     srt_path = None
     if enable_subtitles:
         srt_path = step6_generate_subtitles(tts_results, output_dir, script_path)
 
-    # 步骤7：合成视频
+    # 步骤8：合成视频
     step7_compose_video(video_dir, output_dir, tts_results, srt_path)
 
     # 成本汇总
@@ -452,12 +487,14 @@ def run_pipeline(genre=None, comfyui_running=False, enable_tts=False, enable_sub
     print(f"  剧名: 《{title}》")
     print(f"  题材: {script_genre}")
     print(f"  剧本: {script_path}")
-    print(f"  分辨率: 输入图 → Wan2.2 832x480 → 可选upscale 1080P")
+    print(f"  分镜图: {len(storyboard_images)} 张 (SDXL + LoRA锁人)")
+    print(f"  分辨率: SDXL 768x1344 → Wan2.2 832x480 → 可选upscale 1080P")
     print(f"  预估制作时间: {cost_info['time']['total_readable']}")
     print(f"  预估制作成本: {cost_info['cost']['total']}")
     print(f"  本次Pipeline耗时: {elapsed:.1f}秒")
     print(f"\n  💡 手动执行ComfyUI工作流:")
     if latest_wf:
+        print(f"    SDXL: 运行 scripts/generate_images.py --script {script_path}")
         print(f"    Wan2.2 I2V: 导入 {latest_wf}/scene_XX_wan22_i2v.json")
         print(f"    尾帧续写: 使用 ComfyUI-WanVideoStartEndFrames 插件")
         print(f"    拼接: 多段5秒视频 + 交叉淡化(0.5s) → 15秒+ 成片")
@@ -490,14 +527,14 @@ def main():
     if args.cost_estimate:
         cost_per_hour = config.COST_PER_HOUR
         print_header(f"短剧制作成本估算 (云GPU RTX 4090, ¥{cost_per_hour}/小时)")
-        print("\n| 集数 | 分镜数 | 视频数 | 含TTS | 预估时间 | 预估成本 | 每集成本 |")
-        print("|:----:|:------:|:------:|:-----:|----------|---------:|---------:|")
+        print("\n| 集数 | 分镜 | 视频(抽卡3) | 含TTS | SDXL耗时 | Wan耗时 | 总耗时 | 总成本 | 每集成本 |")
+        print("|:----:|:----:|:---------:|:-----:|--------:|-------:|--------|--------|---------:|")
         for n in [1, 5, 10, 30, 50, 100]:
             info = estimate_cost(num_episodes=n, include_tts=True)
-            print(f"| {n} | {info['total_images']} | {info['total_videos']} | ✓ | {info['time']['total_hours']} | {info['cost']['total']} | {info['cost']['total_per_episode']} |")
+            print(f"| {n} | {info['total_images']} | {info['total_videos']} | ✓ | {info['time']['sdxl']} | {info['time']['wan22']} | {info['time']['total_hours']} | {info['cost']['total']} | {info['cost']['total_per_episode']} |")
         print()
-        print("💡 文生图由你自行搞定，不计入上述成本")
-        print("💡 5秒/段，多抽卡3-5条筛选最优，实际成本可能略高")
+        print("💡 SDXL文生图: 768x1344, LoRA锁人, 每场3张, 约10-20秒/张")
+        print("💡 Wan2.2 I2V: 5秒/段, 每段抽卡3条, 约3-6分钟/条")
         print()
         return
 
@@ -517,28 +554,31 @@ def main():
 
     # 默认：显示帮助
     print("""
-短剧制作Pipeline v5.1 — 租算力+5秒分段版
+短剧制作Pipeline v5.2 — 租算力+SDXL+LoRA锁人+5秒分段版
 用法:
   python pipeline.py --auto                         全自动：抓热点→剧本→TTS先行
   python pipeline.py --auto --genre "霸总"          指定题材
-  python pipeline.py --auto --run-comfyui           全自动+调用ComfyUI API生视频
-  python pipeline.py --auto --run-comfyui --tts     全自动+ComfyUI+TTS配音+字幕
+  python pipeline.py --auto --run-comfyui           全自动+SDXL文生图+Wan2.2生视频
+  python pipeline.py --auto --run-comfyui --tts     全自动+全套（TTS+字幕+合成）
   python pipeline.py --from-script <剧本.md>        从已有剧本开始
   python pipeline.py --cost-estimate                查看成本估算
-完整7步流程（配音先行 + 图生视频）：
-  1. 抓取热点 (酷乐API + 抖音热搜)
-  2. 生成剧本 (含对白/旁白+分镜提示词)
-  3. TTS配音先行 (先出音频，音频时长决定分镜张数和节奏)
-  4. 分镜规划 + 准备分镜图 (文生图由你自行搞定)
-  5. Wan2.2生视频 (5秒/段，尾帧续写，4090 FP16直出)
-  6. 字幕生成 (SRT格式，基于TTS时长精确生成时间轴)
-  7. FFmpeg拼接合成 (多段5秒交叉淡化→15秒+成片)
 
-v5.1 核心变化 (相比v5.0):
-  - 租算力方案: 从本地5060Ti改为云GPU RTX 4090/5090租赁
-  - 5秒分段: 视频从8秒改为5秒/段，稳定性更高，便于尾帧续写拼接
-  - 文生图外置: 去掉SDXL，分镜图由你自行准备
-  - 成本重构: 单条5秒视频约 ¥0.3-0.8，比闭源方案便宜10倍
+完整8步流程（配音先行 + SDXL + LoRA锁人 + 图生视频）：
+  1. 抓取热点 (酷乐API + 抖音热搜)
+  2. 生成剧本 (含对白/旁白 + SDXL提示词 + LoRA锁人词)
+  3. TTS配音先行 (先出音频，音频时长决定分镜张数和节奏)
+  4. SDXL文生图 (768x1344竖屏, LoRA锁人, 每场3张抽卡, 租算力4090)
+  5. 人工筛选分镜图 (或自动筛选)
+  6. Wan2.2生视频 (5秒/段, FP16直出, 尾帧续写)
+  7. 字幕生成 (SRT格式，基于TTS时长精确生成时间轴)
+  8. FFmpeg拼接合成 (多段5秒 + 交叉淡化 → 15秒+成片)
+
+v5.2 核心变化 (相比v5.1):
+  - 新增SDXL文生图自动化 (scripts/generate_images.py)
+  - LoRA锁人保证跨场人物一致性
+  - IP-Adapter可选参考图锁脸
+  - 流程从7步扩展为8步，SDXL自动生成替代手动准备
+  - 成本模型包含SDXL文生图耗时和费用
     """)
 
 
