@@ -481,7 +481,12 @@ def generate_scenes(genre, templates):
                     "cfg_scale": 7.0,
                     "steps": 35,
                     "sampler": "euler_ancestral",
-                    "checkpoint": "sd_xl_base_1.0.safetensors",
+                    "checkpoint": "juggernautXL_v35.safetensors",  # 推荐底模（SDXL微调版，写实最强）
+                    "alt_checkpoints": {
+                        "flux_dev": "flux1-dev-fp16.safetensors",       # Flux.1-dev（画质天花板，更慢）
+                        "realvisxl": "RealVisXL_V5.0.safetensors",     # 人物写真专用
+                        "sdxl_base": "sd_xl_base_1.0.safetensors",     # SDXL原版（基线）
+                    },
                     "lora": {
                         "lora_name": "face_lora.safetensors",
                         "strength_model": 0.8,

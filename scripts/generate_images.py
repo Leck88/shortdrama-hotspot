@@ -35,15 +35,41 @@ logger = logging.getLogger("generate_images")
 
 # ============ 默认参数 ============
 
+# --- 底模选择 ---
+# 2026年文生图模型推荐（4090 24GB FP16直出）：
+#   写实/人物首选:  Flux.1-dev（画质天花板，光影/皮肤/构图最真实）
+#   通用/生态最全:  SDXL 微调版（Juggernaut XL / RealVisXL）
+#   漫剧/分镜专用:  LTX 2.3（长时序连贯性第一，人物不崩脸）
+#
+# 推荐: Flux.1-dev 写实人物 > SDXL Juggernaut XL 通用 > LTX 2.3 漫剧
+# 4090 24GB 可以 FP16 直出 Flux.1-dev（全精度）
+
 # SDXL 文生图默认参数（4090 FP16，高精度）
 DEFAULT_SDXL_PARAMS = {
-    "width": 832,          # SDXL最佳原生比例 (接近1024:1024的3:5竖屏)
-    "height": 1472,        # 832x1472 ≈ SDXL原生竖屏最佳训练比例
+    "width": 832,          # SDXL最佳原生比例 (3:5竖屏)
+    "height": 1472,         # 832x1472 ≈ SDXL原生竖屏最佳训练比例
     "cfg_scale": 7.0,       # 标准值，细节更丰富
     "steps": 35,            # 高精度步数（25-40，35为最佳平衡）
     "sampler": "euler_ancestral",  # 画质最好
     "scheduler": "normal",
-    "checkpoint": "sd_xl_base_1.0.safetensors",
+    # 推荐底模（按画质排名，4090均可FP16直出）:
+    #   1. juggernautXL_v35.safetensors   — 写实/通用最强SDXL微调
+    #   2. RealVisXL_V5.0.safetensors     — 人物写真专用
+    #   3. sd_xl_base_1.0.safetensors     — SDXL原版（基线）
+    "checkpoint": "juggernautXL_v35.safetensors",
+    "seed": -1,
+}
+
+# Flux 文生图参数（画质天花板，推荐用于人物分镜）
+# 4090 24GB FP16 直出，约 20-60秒/图（1024x1536）
+DEFAULT_FLUX_PARAMS = {
+    "width": 1024,          # Flux原生分辨率
+    "height": 1536,         # 2:3竖屏（Flux最佳竖屏比例）
+    "cfg_scale": 3.5,        # Flux推荐值（比SDXL低）
+    "steps": 28,             # Flux Dev推荐20-30
+    "sampler": "euler",      # Flux推荐采样器
+    "scheduler": "normal",
+    "checkpoint": "flux1-dev-fp16.safetensors",  # Flux.1-dev 全精度
     "seed": -1,
 }
 
@@ -498,10 +524,20 @@ def main():
     parser.add_argument("--reference", help="参考人脸图片路径（IP-Adapter 用）")
     parser.add_argument("--batch", type=int, default=3, help="每场抽卡数量")
     parser.add_argument("--no-lora", action="store_true", help="不使用 LoRA")
+    parser.add_argument("--model", choices=["sdxl", "flux"], default="sdxl",
+                        help="底模选择: sdxl(JuggernautXL) 或 flux(Flux.1-dev, 画质更高但更慢)")
 
     args = parser.parse_args()
 
     output_dir = args.output or str(config.OUTPUT_DIR / "storyboard_images")
+
+    # 选择底模参数
+    if args.model == "flux":
+        model_params = DEFAULT_FLUX_PARAMS
+        print(f"  🎨 底模: Flux.1-dev (画质天花板, 1024x1536, ~20-60秒/图)")
+    else:
+        model_params = DEFAULT_SDXL_PARAMS
+        print(f"  🎨 底模: SDXL JuggernautXL (832x1472, ~15-30秒/图)")
 
     lora_params = None
     if not args.no_lora and args.lora:
